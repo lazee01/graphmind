@@ -36,8 +36,8 @@ const skillGroups = [
 ]
 
 const timeline = [
-  { date: '2024 — 2027', title: 'B.Tech, Computer Science & Engineering — AI & ML', org: 'Brainware University', detail: 'Building depth across machine learning, deep learning, NLP, generative AI, databases, and statistical analysis.' },
-  { date: '2021 — 2024', title: 'Diploma, Computer Science & Engineering', org: 'Brainware University', detail: 'CGPA 6.5 / 10 · Core foundation in programming, data structures, databases, and software development.' },
+  { date: '2024 — 2027', title: 'B.Tech CSE — AI & ML', org: 'Brainware University', detail: 'Building depth across machine learning, deep learning, NLP, generative AI, databases, and statistical analysis.' },
+  { date: '2021 — 2024', title: 'Diploma CSE', org: 'Brainware University', detail: 'CGPA 6.5 / 10 · Core foundation in programming, data structures, databases, and software development.' },
   { date: '2021', title: 'Higher Secondary (H.S.)', org: 'Barrackpore A. B. Model High School', detail: 'WBBSE · 67%' },
 ]
 
@@ -156,7 +156,7 @@ function App() {
         </section>
 
         <section className="education section-wrap">
-          <div className="education-card"><div><div className="section-kicker">05 — LEARNING NEVER STOPS</div><h2>Certified curiosity.</h2></div><div className="cert-detail"><div className="cert-seal"><Orbit size={22} /></div><div><h3>Elements of AI</h3><p>University of Helsinki · September 2026</p><small>Credential ID: 6tfcqp4lrry</small></div></div><div className="coursework"><span>Coursework</span><p>ML · DL · NLP · GenAI · LLMs · DSA · DBMS · Python · Statistics / Data Analysis</p></div></div>
+          <div className="education-card"><div><div className="section-kicker">05 — LEARNING NEVER STOPS</div><h2>Certified curiosity.</h2></div><div className="cert-detail"><div className="cert-seal"><Orbit size={22} /></div><div><h3>Elements of AI</h3><p>University of Helsinki · Sep 2026</p><small>Credential ID: 6tfcqp4lrry</small></div></div><div className="coursework"><span>Coursework</span><p>ML · DL · NLP · GenAI · LLMs · DSA · DBMS · Python · Statistics / Data Analysis</p></div></div>
         </section>
 
         <section className="contact section-wrap" id="contact" aria-labelledby="contact-title">
