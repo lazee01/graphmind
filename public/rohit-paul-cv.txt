@@ -1,0 +1,26 @@
+ROHIT PAUL
+AI/ML Engineer | Generative AI | Machine Learning | NLP
+
+CONTACT
++91 7003762633
+rohgaming01@gmail.com
+
+SUMMARY
+AI/ML Engineer fresher with a foundation in Python, machine learning, deep learning, NLP, and LLMs. Interested in reliable, scalable, production-oriented AI, GenAI, NLP, and retrieval systems.
+
+SKILLS
+Python, SQL, DSA, NumPy, Pandas, Matplotlib, Seaborn, scikit-learn, PyTorch, Transformers, Hugging Face, RAG, FAISS, LangChain, LangGraph, knowledge graphs, Neo4j, multi-agent systems, FastAPI, Docker, MLflow, DVC, AWS, CI/CD, Git, GitHub.
+
+PROJECT
+GraphMind — Scientific Literature QA System
+Python, RAG, FAISS, Neo4j, knowledge graphs, multi-agent systems
+Developing a scientific literature QA system with PDF processing, chunking, embeddings, evidence retrieval, verification, citation tracking, multi-agent query planning, graph reasoning, evidence verification, and answer generation.
+
+EDUCATION
+Brainware University — B.Tech CSE (AI & ML), 2024–2027
+Brainware University — Diploma CSE, 2021–2024, CGPA 6.5/10
+Barrackpore A. B. Model High School — H.S., 2021, WBBSE 67%
+
+CERTIFICATION
+Elements of AI — University of Helsinki, September 2026
+Credential ID: 6tfcqp4lrry
