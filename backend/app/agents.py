@@ -37,12 +37,12 @@ class GraphMindOrchestrator:
             "coordination": "plan→retrieve→graph→fuse→verify→generate",
         }
 
-    def run(self, question: str, limit: int = 6) -> dict[str, Any]:
+    def run(self, question: str, limit: int = 6, document_id: str | None = None) -> dict[str, Any]:
         plan = self.models.plan(question) or {"sub_queries": [question], "entities": []}
         queries = plan.get("sub_queries") or [question]
         evidence_by_id: dict[str, dict] = {}
         for query in queries[:3]:
-            for item in self.retrieve(query, limit):
+            for item in self.retrieve(query, limit, document_id=document_id):
                 evidence_by_id[item["id"]] = item
         evidence = sorted(evidence_by_id.values(), key=lambda item: item["score"], reverse=True)[:limit]
         return {

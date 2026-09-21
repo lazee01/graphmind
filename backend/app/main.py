@@ -23,6 +23,7 @@ app.add_middleware(CORSMiddleware, allow_origins=cors_origins, allow_methods=["*
 class AskRequest(BaseModel):
     question: str = Field(min_length=3, max_length=2000)
     limit: int = Field(default=6, ge=1, le=20)
+    document_id: str | None = Field(default=None, max_length=80)
 
 
 class Credentials(BaseModel):
@@ -120,4 +121,6 @@ async def upload_document(file: UploadFile = File(...), _: dict | None = Depends
 
 @app.post("/api/ask")
 def ask(request: AskRequest, _: dict | None = Depends(current_user)) -> dict:
-    return engine.ask(request.question, request.limit)
+    if request.document_id and request.document_id not in engine.documents:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return engine.ask(request.question, request.limit, request.document_id)

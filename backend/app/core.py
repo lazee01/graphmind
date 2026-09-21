@@ -130,12 +130,14 @@ class HybridIndex:
         for chunk, vector in zip(self.chunks, vectors):
             chunk.embedding = vector
 
-    def search(self, query: str, limit: int = 6) -> list[dict]:
+    def search(self, query: str, limit: int = 6, document_id: str | None = None) -> list[dict]:
         query_words = Counter(tokenize(query))
         query_vector = self.models.embed([query])
         query_vector = query_vector[0] if query_vector else self.embedder.transform(query)
         scored = []
         for chunk in self.chunks:
+            if document_id and chunk.document_id != document_id:
+                continue
             lexical = sum(query_words[word] for word in tokenize(chunk.text) if word in query_words)
             lexical_score = min(lexical / max(sum(query_words.values()), 1), 1.0)
             semantic_score = cosine(query_vector, chunk.embedding)
@@ -214,8 +216,8 @@ class GraphMindEngine:
         model_plan = self.models.plan(question)
         return {"question_type": "comparative" if "compare" in terms or "difference" in terms else "factoid", "sub_queries": model_plan["sub_queries"] if model_plan else [question], "entities": model_plan["entities"] if model_plan else terms[:8], "planner": "model" if model_plan else "local"}
 
-    def ask(self, question: str, limit: int = 6) -> dict:
-        workflow = self.orchestrator.run(question, limit)
+    def ask(self, question: str, limit: int = 6, document_id: str | None = None) -> dict:
+        workflow = self.orchestrator.run(question, limit, document_id=document_id)
         plan = workflow["plan"]
         evidence = workflow["evidence"]
         graph_context = workflow["graph_context"]
@@ -230,7 +232,7 @@ class GraphMindEngine:
         verification = self.models.verify(answer, evidence)
         if verification and verification.get("supported") is False:
             confidence = min(confidence, 0.35)
-        return {"question": question, "answer": answer, "confidence": round(confidence, 2), "status": status, "plan": plan, "evidence": evidence, "graph_context": graph_context, "verification": verification or {"supported": bool(evidence), "mode": "local"}, "provider": self.models.status(), "orchestration": {"agents": self.orchestrator.status()["agents"], "messages": workflow["messages"]}}
+        return {"question": question, "document_id": document_id, "answer": answer, "confidence": round(confidence, 2), "status": status, "plan": plan, "evidence": evidence, "graph_context": graph_context, "verification": verification or {"supported": bool(evidence), "mode": "local"}, "provider": self.models.status(), "orchestration": {"agents": self.orchestrator.status()["agents"], "messages": workflow["messages"]}}
 
     def _local_answer(self, question: str, evidence: list[dict]) -> str:
         sentences = []

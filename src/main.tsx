@@ -31,6 +31,7 @@ function App() {
   const [question, setQuestion] = useState('What does GraphMind preserve for each passage?')
   const [answer, setAnswer] = useState<Answer | null>(null)
   const [documents, setDocuments] = useState<Document[]>([])
+  const [selectedDocument, setSelectedDocument] = useState<string | null>(null)
   const [health, setHealth] = useState<{ status: string; chunks: number; provider: { provider?: string; active?: boolean }; neo4j: boolean; agents?: { name: string; mode: string }[] } | null>(null)
   const [offline, setOffline] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -70,7 +71,7 @@ function App() {
         setAnswer({ ...DEMO_ANSWER, question })
         return
       }
-      const response = await fetch(`${API}/api/ask`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...apiHeaders() }, body: JSON.stringify({ question }) })
+      const response = await fetch(`${API}/api/ask`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...apiHeaders() }, body: JSON.stringify({ question, document_id: selectedDocument || undefined }) })
       if (!response.ok) throw new Error((await response.json()).detail || 'Query failed')
       setAnswer(await response.json())
     } catch (reason) {
@@ -135,7 +136,7 @@ function App() {
         {!busy && answer && <div className="answer-grid"><article className="answer-card"><div className="card-head"><span className={`answer-status ${answer.status}`}><CheckCircle2 size={14} /> {answer.status === 'grounded' ? 'GROUNDED ANSWER' : 'INSUFFICIENT EVIDENCE'}</span><span className="confidence">Confidence {Math.round(answer.confidence * 100)}%</span></div><p className="answer-text">{answer.answer}</p><div className="answer-meta"><span>Provider: {JSON.stringify(answer.provider)}</span><span>Question type: {answer.plan.question_type}</span></div>{answer.graph_context.length > 0 && <div className="graph-context"><strong><GitBranch size={14} /> Graph context</strong>{answer.graph_context.map((item) => <span key={item}>{item}</span>)}</div>}</article><EvidencePanel evidence={answer.evidence} /></div>}
         {!busy && !answer && <div className="empty-state"><BookOpen size={25} /><strong>Ask your first question</strong><span>Answers will include ranked passages, section context, and citation-ready metadata.</span></div>}
       </section>
-      <section className="library-section" id="library"><div className="section-title"><div><span className="kicker">02 / DOCUMENT LIBRARY</span><h2>What GraphMind knows.</h2></div><label className="upload-button"><Upload size={16} /> {uploading ? 'Extracting…' : 'Upload PDF or TXT'}<input type="file" accept=".pdf,.txt,.md" onChange={upload} disabled={uploading} /></label></div><div className="library-grid">{documents.map((document) => <article className="document-card" key={document.id}><div className="document-icon"><FileText size={20} /></div><div><strong>{document.name}</strong><span>{document.source === 'demo' ? 'Demo corpus' : 'Uploaded document'} · {document.chunks} chunks</span></div><ChevronRight size={16} /></article>)}</div></section>
+      <section className="library-section" id="library"><div className="section-title"><div><span className="kicker">02 / DOCUMENT LIBRARY</span><h2>What GraphMind knows.</h2></div><label className="upload-button"><Upload size={16} /> {uploading ? 'Extracting…' : 'Upload PDF or TXT'}<input type="file" accept=".pdf,.txt,.md" onChange={upload} disabled={uploading} /></label></div>{selectedDocument && <button className="clear-selection" onClick={() => setSelectedDocument(null)}>Querying selected paper · clear selection</button>}<div className="library-grid">{documents.map((document) => <button className={`document-card ${selectedDocument === document.id ? 'selected' : ''}`} key={document.id} onClick={() => { setSelectedDocument(document.id); window.location.hash = 'ask' }}><div className="document-icon"><FileText size={20} /></div><div><strong>{document.name}</strong><span>{document.source === 'demo' ? 'Demo corpus' : 'Uploaded document'} · {document.chunks} chunks</span></div><ChevronRight size={16} /></button>)}</div></section>
       <section className="method-section" id="method"><div className="section-title"><div><span className="kicker">03 / TRANSPARENT BY DESIGN</span><h2>A practical pipeline.</h2></div></div><div className="method-grid">{[['01', 'Ingest', 'Extract text, detect sections, and preserve page metadata.'], ['02', 'Retrieve', 'Blend lexical matching with a dependency-free local vector index.'], ['03', 'Reason', 'Use graph context when available, with a local relationship fallback.'], ['04', 'Verify', 'Expose confidence, evidence, and citations instead of hiding uncertainty.']].map(([number, title, text]) => <article key={number}><span>{number}</span><h3>{title}</h3><p>{text}</p></article>)}</div></section>
     </main>
     <footer><span>GraphMind / B.Tech prototype</span><span>{health ? `${health.chunks} chunks · ${health.provider.provider || 'local'} provider · ${(health.agents || []).length || 5} agents` : 'FastAPI + React'}</span></footer>
