@@ -2,7 +2,7 @@
 
 GraphMind is a runnable B.Tech prototype for asking questions over scientific literature. This repository now contains a FastAPI backend and a responsive React/Vite research console. The original portfolio visual components remain in `src/SpaceScene.tsx` for reuse.
 
-The default local engine is intentionally dependency-light: it extracts PDF/TXT/Markdown text, detects sections, creates overlapping provenance-aware chunks, indexes them with a deterministic TF-IDF vector fallback, blends lexical and semantic scores, builds a lightweight local relationship graph, and returns citation metadata plus an explicit confidence/status. Neo4j, hosted embeddings, and API LLM providers are optional extension points rather than hidden requirements.
+The default local engine is intentionally dependency-light: it extracts PDF/TXT/Markdown text, detects sections, creates overlapping provenance-aware chunks, indexes them with a deterministic TF-IDF vector fallback, blends lexical and semantic scores, builds a lightweight local relationship graph, and returns citation metadata plus an explicit confidence/status. The model adapter (`backend/app/providers.py`) can activate Sentence Transformers embeddings, Hugging Face generation/summarization/NER, or an OpenAI-compatible API for planning, answer generation, and verification when configured; every adapter catches missing packages/model downloads and falls back explicitly.
 
 For the report-aligned production path, `backend/requirements-optional.txt` lists Sentence Transformers/Hugging Face, PyTorch, FAISS, Neo4j, LangChain, and PyMuPDF. These are intentionally opt-in because their native/runtime footprints are large; the API contracts do not change when a stronger provider is introduced. QLoRA is an experimentation path for fine-tuning a compatible local generator, not a requirement for this retrieval MVP. No credentials are committed.
 
@@ -18,7 +18,7 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```
 
-The API stores its local index in `backend/data` by default. Copy `.env.example` to `.env` to configure `GRAPHMIND_DATA_DIR` or select a future LLM provider. Useful endpoints are `GET /api/health`, `GET /api/config`, `GET /api/documents`, `POST /api/documents`, and `POST /api/ask`.
+The API stores its local index in `backend/data` by default. Copy `.env.example` to `.env` to configure `GRAPHMIND_DATA_DIR` and `GRAPHMIND_MODEL_PROVIDER` (`local`, `huggingface`, `sentence-transformers`, or `openai-compatible`). `GET /api/health` and `GET /api/config` report the selected models and whether a model adapter is active. Useful endpoints are `GET /api/health`, `GET /api/config`, `GET /api/documents`, `POST /api/documents`, and `POST /api/ask`.
 
 ### Frontend
 

@@ -9,6 +9,7 @@ from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Iterable
+from .providers import ModelProvider
 
 WORD_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]{1,}")
 SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
@@ -117,19 +118,21 @@ def chunk_text(document_id: str, document_name: str, text: str, page: int | None
 
 
 class HybridIndex:
-    def __init__(self) -> None:
+    def __init__(self, models: ModelProvider | None = None) -> None:
         self.embedder = TfidfEmbedder()
+        self.models = models or ModelProvider()
         self.chunks: list[Chunk] = []
 
     def add(self, chunks: list[Chunk]) -> None:
         self.chunks.extend(chunks)
-        vectors = self.embedder.fit_transform([chunk.text for chunk in self.chunks])
+        vectors = self.models.embed([chunk.text for chunk in self.chunks]) or self.embedder.fit_transform([chunk.text for chunk in self.chunks])
         for chunk, vector in zip(self.chunks, vectors):
             chunk.embedding = vector
 
     def search(self, query: str, limit: int = 6) -> list[dict]:
         query_words = Counter(tokenize(query))
-        query_vector = self.embedder.transform(query)
+        query_vector = self.models.embed([query])
+        query_vector = query_vector[0] if query_vector else self.embedder.transform(query)
         scored = []
         for chunk in self.chunks:
             lexical = sum(query_words[word] for word in tokenize(chunk.text) if word in query_words)
@@ -147,9 +150,9 @@ class GraphStore:
     edges: list[dict[str, str]] = field(default_factory=list)
     available: bool = False
 
-    def ingest(self, chunks: list[Chunk]) -> None:
+    def ingest(self, chunks: list[Chunk], models: ModelProvider | None = None) -> None:
         for chunk in chunks:
-            entities = [word for word in tokenize(chunk.text) if len(word) > 5][:8]
+            entities = (models.entities(chunk.text) if models else None) or [word for word in tokenize(chunk.text) if len(word) > 5][:8]
             self.nodes.update(entities)
             for left, right in zip(entities, entities[1:]):
                 self.edges.append({"source": left, "target": right, "relation": "co-occurs"})
@@ -163,7 +166,8 @@ class GraphMindEngine:
     def __init__(self, data_dir: str | Path = "./data") -> None:
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
-        self.index = HybridIndex()
+        self.models = ModelProvider()
+        self.index = HybridIndex(self.models)
         self.graph = GraphStore()
         self.documents: dict[str, dict] = {}
         self._load()
@@ -197,7 +201,7 @@ class GraphMindEngine:
             for chunk in chunk_text(document_id, name, text, page=page)
         ]
         self.index.add(chunks)
-        self.graph.ingest(chunks)
+        self.graph.ingest(chunks, self.models)
         metadata = {"id": document_id, "name": name, "source": source, "chunks": len(chunks)}
         self.documents[document_id] = metadata
         self._save()
@@ -205,21 +209,25 @@ class GraphMindEngine:
 
     def plan(self, question: str) -> dict:
         terms = tokenize(question)
-        return {"question_type": "comparative" if "compare" in terms or "difference" in terms else "factoid", "sub_queries": [question], "entities": terms[:8]}
+        model_plan = self.models.plan(question)
+        return {"question_type": "comparative" if "compare" in terms or "difference" in terms else "factoid", "sub_queries": model_plan["sub_queries"] if model_plan else [question], "entities": model_plan["entities"] if model_plan else terms[:8], "planner": "model" if model_plan else "local"}
 
     def ask(self, question: str, limit: int = 6) -> dict:
         plan = self.plan(question)
         evidence = self.index.search(question, limit)
         graph_context = self.graph.context(question)
         if evidence:
-            answer = self._local_answer(question, evidence)
+            answer = self.models.generate(f"Answer the question using only the evidence. Cite the source names inline.\nQuestion: {question}\nEvidence: {' '.join(item['text'] for item in evidence[:4])}") or self._local_answer(question, evidence)
             confidence = min(0.98, 0.42 + sum(item["score"] for item in evidence[:3]) / 3)
             status = "grounded"
         else:
             answer = "I could not find supporting passages in the indexed literature."
             confidence = 0.0
             status = "insufficient_evidence"
-        return {"question": question, "answer": answer, "confidence": round(confidence, 2), "status": status, "plan": plan, "evidence": evidence, "graph_context": graph_context, "provider": os.getenv("GRAPHMIND_LLM_PROVIDER", "local")}
+        verification = self.models.verify(answer, evidence)
+        if verification and verification.get("supported") is False:
+            confidence = min(confidence, 0.35)
+        return {"question": question, "answer": answer, "confidence": round(confidence, 2), "status": status, "plan": plan, "evidence": evidence, "graph_context": graph_context, "verification": verification or {"supported": bool(evidence), "mode": "local"}, "provider": self.models.status()}
 
     def _local_answer(self, question: str, evidence: list[dict]) -> str:
         sentences = []

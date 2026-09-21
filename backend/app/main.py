@@ -23,12 +23,12 @@ class AskRequest(BaseModel):
 
 @app.get("/api/health")
 def health() -> dict:
-    return {"status": "ok", "documents": len(engine.documents), "chunks": len(engine.index.chunks), "neo4j": engine.graph.available, "provider": os.getenv("GRAPHMIND_LLM_PROVIDER", "local")}
+    return {"status": "ok", "documents": len(engine.documents), "chunks": len(engine.index.chunks), "neo4j": engine.graph.available, "provider": engine.models.status()}
 
 
 @app.get("/api/config")
 def config() -> dict:
-    return {"llm_provider": os.getenv("GRAPHMIND_LLM_PROVIDER", "local"), "vector_store": "local-tfidf", "graph_store": "neo4j" if engine.graph.available else "local-fallback", "features": {"pdf_upload": True, "provenance": True, "hybrid_retrieval": True, "answer_generation": True}}
+    return {"models": engine.models.status(), "vector_store": "sentence-transformers-or-local-tfidf", "graph_store": "neo4j" if engine.graph.available else "local-fallback", "features": {"pdf_upload": True, "provenance": True, "hybrid_retrieval": True, "answer_generation": True, "planner": True, "verification": True, "entity_extraction": True}}
 
 
 @app.get("/api/documents")

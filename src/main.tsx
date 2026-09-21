@@ -7,7 +7,7 @@ import {
 import './styles.css'
 
 type Evidence = { id: string; document_name: string; text: string; page: number | null; section: string; score: number; citation: string }
-type Answer = { answer: string; confidence: number; status: string; provider: string; evidence: Evidence[]; graph_context: string[]; plan: { question_type: string; entities: string[] } }
+type Answer = { answer: string; confidence: number; status: string; provider: unknown; evidence: Evidence[]; graph_context: string[]; plan: { question_type: string; entities: string[] } }
 type Document = { id: string; name: string; source: string; chunks: number }
 const API = (import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000').replace(/\/$/, '')
 
@@ -15,7 +15,7 @@ function App() {
   const [question, setQuestion] = useState('What does GraphMind preserve for each passage?')
   const [answer, setAnswer] = useState<Answer | null>(null)
   const [documents, setDocuments] = useState<Document[]>([])
-  const [health, setHealth] = useState<{ status: string; chunks: number; provider: string; neo4j: boolean } | null>(null)
+  const [health, setHealth] = useState<{ status: string; chunks: number; provider: { provider?: string; active?: boolean }; neo4j: boolean } | null>(null)
   const [busy, setBusy] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState('')
@@ -73,13 +73,13 @@ function App() {
         <form className="query-box" onSubmit={ask}><Search size={20} /><input value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="Ask a question about your indexed papers…" /><button disabled={busy}>{busy ? <LoaderCircle className="spin" size={17} /> : <ArrowUpRight size={17} />} Ask</button></form>
         {error && <div className="notice error"><AlertCircle size={17} /> {error}<button onClick={() => setError('')} aria-label="Dismiss"><X size={15} /></button></div>}
         {busy && <div className="loading-card"><LoaderCircle className="spin" size={22} /><div><strong>Following the evidence trail…</strong><span>Planning sub-queries and scoring passages</span></div></div>}
-        {!busy && answer && <div className="answer-grid"><article className="answer-card"><div className="card-head"><span className={`answer-status ${answer.status}`}><CheckCircle2 size={14} /> {answer.status === 'grounded' ? 'GROUNDED ANSWER' : 'INSUFFICIENT EVIDENCE'}</span><span className="confidence">Confidence {Math.round(answer.confidence * 100)}%</span></div><p className="answer-text">{answer.answer}</p><div className="answer-meta"><span>Provider: {answer.provider}</span><span>Question type: {answer.plan.question_type}</span></div>{answer.graph_context.length > 0 && <div className="graph-context"><strong><GitBranch size={14} /> Graph context</strong>{answer.graph_context.map((item) => <span key={item}>{item}</span>)}</div>}</article><EvidencePanel evidence={answer.evidence} /></div>}
+        {!busy && answer && <div className="answer-grid"><article className="answer-card"><div className="card-head"><span className={`answer-status ${answer.status}`}><CheckCircle2 size={14} /> {answer.status === 'grounded' ? 'GROUNDED ANSWER' : 'INSUFFICIENT EVIDENCE'}</span><span className="confidence">Confidence {Math.round(answer.confidence * 100)}%</span></div><p className="answer-text">{answer.answer}</p><div className="answer-meta"><span>Provider: {JSON.stringify(answer.provider)}</span><span>Question type: {answer.plan.question_type}</span></div>{answer.graph_context.length > 0 && <div className="graph-context"><strong><GitBranch size={14} /> Graph context</strong>{answer.graph_context.map((item) => <span key={item}>{item}</span>)}</div>}</article><EvidencePanel evidence={answer.evidence} /></div>}
         {!busy && !answer && <div className="empty-state"><BookOpen size={25} /><strong>Ask your first question</strong><span>Answers will include ranked passages, section context, and citation-ready metadata.</span></div>}
       </section>
       <section className="library-section" id="library"><div className="section-title"><div><span className="kicker">02 / DOCUMENT LIBRARY</span><h2>What GraphMind knows.</h2></div><label className="upload-button"><Upload size={16} /> {uploading ? 'Extracting…' : 'Upload PDF or TXT'}<input type="file" accept=".pdf,.txt,.md" onChange={upload} disabled={uploading} /></label></div><div className="library-grid">{documents.map((document) => <article className="document-card" key={document.id}><div className="document-icon"><FileText size={20} /></div><div><strong>{document.name}</strong><span>{document.source === 'demo' ? 'Demo corpus' : 'Uploaded document'} · {document.chunks} chunks</span></div><ChevronRight size={16} /></article>)}</div></section>
       <section className="method-section" id="method"><div className="section-title"><div><span className="kicker">03 / TRANSPARENT BY DESIGN</span><h2>A practical pipeline.</h2></div></div><div className="method-grid">{[['01', 'Ingest', 'Extract text, detect sections, and preserve page metadata.'], ['02', 'Retrieve', 'Blend lexical matching with a dependency-free local vector index.'], ['03', 'Reason', 'Use graph context when available, with a local relationship fallback.'], ['04', 'Verify', 'Expose confidence, evidence, and citations instead of hiding uncertainty.']].map(([number, title, text]) => <article key={number}><span>{number}</span><h3>{title}</h3><p>{text}</p></article>)}</div></section>
     </main>
-    <footer><span>GraphMind / B.Tech prototype</span><span>{health ? `${health.chunks} indexed chunks · ${health.provider} provider` : 'FastAPI + React'}</span></footer>
+    <footer><span>GraphMind / B.Tech prototype</span><span>{health ? `${health.chunks} indexed chunks · ${health.provider.provider || 'local'} provider` : 'FastAPI + React'}</span></footer>
   </div>
 }
 
