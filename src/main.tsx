@@ -1,4 +1,6 @@
 import { ChangeEvent, FormEvent, useEffect, useState } from 'react'
+import { StrictMode } from 'react'
+import { createRoot } from 'react-dom/client'
 import {
   AlertCircle, ArrowUpRight, BookOpen, CheckCircle2, ChevronRight, CircleDot,
   FileText, GitBranch, LoaderCircle, Search, Settings2, ShieldCheck, Sparkles,
@@ -86,5 +88,9 @@ function App() {
 function EvidencePanel({ evidence }: { evidence: Evidence[] }) {
   return <aside className="evidence-card"><div className="card-head"><span className="evidence-title"><BookOpen size={14} /> SUPPORTING EVIDENCE</span><span className="muted">{evidence.length} passages</span></div>{evidence.length === 0 ? <p className="muted">No supporting passages found.</p> : evidence.map((item, index) => <div className="evidence-item" key={item.id}><div className="evidence-number">{String(index + 1).padStart(2, '0')}</div><div><strong>{item.document_name}</strong><span className="citation">{item.citation} · score {item.score}</span><p>{item.text}</p></div></div>)}</aside>
 }
+
+const root = document.getElementById('root')
+if (!root) throw new Error('GraphMind root element was not found')
+createRoot(root).render(<StrictMode><App /></StrictMode>)
 
 export default App
