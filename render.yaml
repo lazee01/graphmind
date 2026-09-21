@@ -17,3 +17,11 @@ services:
         sync: false
       - key: GRAPHMIND_LLM_API_URL
         sync: false
+      - key: GRAPHMIND_GROQ_API_URL
+        value: https://api.groq.com/openai/v1/chat/completions
+      - key: GRAPHMIND_GROQ_API_KEY
+        sync: false
+      - key: GRAPHMIND_HUGGINGFACE_API_KEY
+        sync: false
+      - key: GRAPHMIND_GEMINI_API_KEY
+        sync: false

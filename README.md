@@ -68,7 +68,16 @@ The backend can also run with `docker compose up --build`; persistent indexed da
 3. The free-tier blueprint stores `GRAPHMIND_DATA_DIR` under `/tmp/graphmind-data`, so indexed documents and SQLite sessions are ephemeral and can be lost on restart/redeploy. For production persistence, change the value to `/var/data` and add a Render paid-plan disk mounted at `/var/data` in the service settings (Render free services do not support disks).
 4. After deployment, verify `https://<service>.onrender.com/api/health`, then save that URL as the GitHub Actions repository variable `VITE_API_URL` and rerun the Pages workflow.
 
-No API keys are included. Add model credentials such as `GRAPHMIND_LLM_API_KEY` only in Render's environment settings. Final Render account authorization, service creation, and AI provider key entry require the repository owner.
+No API keys are included. **Any keys pasted into chat must be treated as compromised and rotated immediately; they are not used or stored by this repository.** After rotation, add credentials only in Render's environment settings:
+
+| Provider | Variables | Current adapter |
+|---|---|---|
+| Groq | `GRAPHMIND_MODEL_PROVIDER=groq`, `GRAPHMIND_GROQ_API_KEY`, optional `GRAPHMIND_GROQ_API_URL` | Supported through Groq's OpenAI-compatible chat endpoint |
+| OpenAI-compatible | `GRAPHMIND_MODEL_PROVIDER=openai-compatible`, `GRAPHMIND_LLM_API_KEY`, `GRAPHMIND_LLM_API_URL` | Supported |
+| Hugging Face | `GRAPHMIND_MODEL_PROVIDER=huggingface`, `GRAPHMIND_HUGGINGFACE_API_KEY` (for provider status), `GRAPHMIND_GENERATION_MODEL` | Uses local pretrained Transformers when optional dependencies are installed; the key is not sent to a hosted inference API |
+| Gemini | `GRAPHMIND_GEMINI_API_KEY` | Reserved only; Gemini's native API adapter is not implemented, so it falls back to local mode |
+
+Set `GRAPHMIND_PROVIDER_SLOTS=local,groq,huggingface` to expose configured slots in health/config. Never put any of these variables in the frontend or commit their values. Final Render account authorization, service creation, key rotation, and provider key entry require the repository owner.
 
 Create a production build with `npm run build`, then preview it with `npm run preview`.
 

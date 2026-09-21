@@ -17,6 +17,18 @@ class ModelProvider:
         self._embedder: Any = None
         self._generator: Any = None
 
+    def _api_key(self, provider: str | None = None) -> str:
+        selected = provider or self.name
+        return (
+            os.getenv(f"GRAPHMIND_{selected.upper()}_API_KEY")
+            or os.getenv("GRAPHMIND_LLM_API_KEY", "")
+        )
+
+    def _api_url(self) -> str | None:
+        if self.name == "groq":
+            return os.getenv("GRAPHMIND_GROQ_API_URL", "https://api.groq.com/openai/v1/chat/completions")
+        return os.getenv("GRAPHMIND_LLM_API_URL")
+
     def status(self) -> dict[str, Any]:
         configured = self.name != "local"
         return {
@@ -25,7 +37,7 @@ class ModelProvider:
             "generation_model": self.generation_model if configured else None,
             "active": bool(self._embedder or self._generator) if configured else True,
             "fallback": "tfidf-and-extractive-local",
-            "slots": [{"name": slot, "configured": slot == "local" or bool(os.getenv("GRAPHMIND_LLM_API_KEY"))} for slot in self.slots],
+            "slots": [{"name": slot, "configured": slot == "local" or bool(self._api_key(slot))} for slot in self.slots],
         }
 
     def _load_embedding_model(self) -> Any:
@@ -61,9 +73,9 @@ class ModelProvider:
                 return str(result[0].get("generated_text") or result[0].get("text", "")).strip()
             except (ImportError, OSError, RuntimeError):
                 return None
-        if self.name in {"openai", "openai-compatible"}:
-            url = os.getenv("GRAPHMIND_LLM_API_URL")
-            key = os.getenv("GRAPHMIND_LLM_API_KEY")
+        if self.name in {"openai", "openai-compatible", "groq"}:
+            url = self._api_url()
+            key = self._api_key()
             if not url or not key:
                 return None
             try:
