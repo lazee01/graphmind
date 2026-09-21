@@ -10,6 +10,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Iterable
 from .providers import ModelProvider
+from .agents import GraphMindOrchestrator
 
 WORD_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]{1,}")
 SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
@@ -169,6 +170,7 @@ class GraphMindEngine:
         self.models = ModelProvider()
         self.index = HybridIndex(self.models)
         self.graph = GraphStore()
+        self.orchestrator = GraphMindOrchestrator(self.models, self.index.search, self.graph.context)
         self.documents: dict[str, dict] = {}
         self._load()
         if not self.documents:
@@ -213,9 +215,10 @@ class GraphMindEngine:
         return {"question_type": "comparative" if "compare" in terms or "difference" in terms else "factoid", "sub_queries": model_plan["sub_queries"] if model_plan else [question], "entities": model_plan["entities"] if model_plan else terms[:8], "planner": "model" if model_plan else "local"}
 
     def ask(self, question: str, limit: int = 6) -> dict:
-        plan = self.plan(question)
-        evidence = self.index.search(question, limit)
-        graph_context = self.graph.context(question)
+        workflow = self.orchestrator.run(question, limit)
+        plan = workflow["plan"]
+        evidence = workflow["evidence"]
+        graph_context = workflow["graph_context"]
         if evidence:
             answer = self.models.generate(f"Answer the question using only the evidence. Cite the source names inline.\nQuestion: {question}\nEvidence: {' '.join(item['text'] for item in evidence[:4])}") or self._local_answer(question, evidence)
             confidence = min(0.98, 0.42 + sum(item["score"] for item in evidence[:3]) / 3)
@@ -227,7 +230,7 @@ class GraphMindEngine:
         verification = self.models.verify(answer, evidence)
         if verification and verification.get("supported") is False:
             confidence = min(confidence, 0.35)
-        return {"question": question, "answer": answer, "confidence": round(confidence, 2), "status": status, "plan": plan, "evidence": evidence, "graph_context": graph_context, "verification": verification or {"supported": bool(evidence), "mode": "local"}, "provider": self.models.status()}
+        return {"question": question, "answer": answer, "confidence": round(confidence, 2), "status": status, "plan": plan, "evidence": evidence, "graph_context": graph_context, "verification": verification or {"supported": bool(evidence), "mode": "local"}, "provider": self.models.status(), "orchestration": {"agents": self.orchestrator.status()["agents"], "messages": workflow["messages"]}}
 
     def _local_answer(self, question: str, evidence: list[dict]) -> str:
         sentences = []

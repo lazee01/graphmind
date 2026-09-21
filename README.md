@@ -47,6 +47,8 @@ The demo corpus is inserted automatically on first backend start, so the query a
 
 The model integrations use pretrained configurable models; none are trained in this repository. Fine-tuning/QLoRA requires a prepared dataset, a compatible base model, GPU resources, and a separate training workflow.
 
+The backend orchestration contract coordinates planner, retrieval, graph/entity, verifier, and generator agents as structured messages (`plan→retrieve→graph→fuse→verify→generate`). In local mode these are deterministic fallback agents; real model-backed calls require a user-supplied provider configuration and a hosted/running backend. The public Pages deployment intentionally uses Offline Demo Mode because GitHub Pages cannot run FastAPI or protect model API keys.
+
 ## Docker
 
 The backend can also run with `docker compose up --build`; persistent indexed data is kept in the `graphmind-data` volume. Keep the Vite frontend on the host with `npm run dev`, or build it separately and set `VITE_API_URL` to the published API URL.

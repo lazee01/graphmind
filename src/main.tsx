@@ -31,7 +31,7 @@ function App() {
   const [question, setQuestion] = useState('What does GraphMind preserve for each passage?')
   const [answer, setAnswer] = useState<Answer | null>(null)
   const [documents, setDocuments] = useState<Document[]>([])
-  const [health, setHealth] = useState<{ status: string; chunks: number; provider: { provider?: string; active?: boolean }; neo4j: boolean } | null>(null)
+  const [health, setHealth] = useState<{ status: string; chunks: number; provider: { provider?: string; active?: boolean }; neo4j: boolean; agents?: { name: string; mode: string }[] } | null>(null)
   const [offline, setOffline] = useState(false)
   const [busy, setBusy] = useState(false)
   const [uploading, setUploading] = useState(false)
@@ -45,7 +45,7 @@ function App() {
       setDocuments(await documentsResponse.json())
     } catch {
       setOffline(true)
-      setHealth({ status: 'demo', chunks: 7, provider: { provider: 'offline-demo', active: true }, neo4j: false })
+      setHealth({ status: 'demo', chunks: 7, provider: { provider: 'offline-demo', active: true }, neo4j: false, agents: ['planner', 'retrieval', 'graph', 'verifier', 'generator'].map((name) => ({ name, mode: 'offline-demo' })) })
       setDocuments(DEMO_DOCUMENTS)
     }
   }
@@ -66,7 +66,7 @@ function App() {
       setAnswer(await response.json())
     } catch (reason) {
       setOffline(true)
-      setHealth({ status: 'demo', chunks: 7, provider: { provider: 'offline-demo', active: true }, neo4j: false })
+      setHealth({ status: 'demo', chunks: 7, provider: { provider: 'offline-demo', active: true }, neo4j: false, agents: ['planner', 'retrieval', 'graph', 'verifier', 'generator'].map((name) => ({ name, mode: 'offline-demo' })) })
       setDocuments(DEMO_DOCUMENTS)
       setAnswer({ ...DEMO_ANSWER, question })
     }
@@ -89,7 +89,7 @@ function App() {
       await loadWorkspace()
     } catch (reason) {
       setOffline(true)
-      setHealth({ status: 'demo', chunks: 7, provider: { provider: 'offline-demo', active: true }, neo4j: false })
+      setHealth({ status: 'demo', chunks: 7, provider: { provider: 'offline-demo', active: true }, neo4j: false, agents: ['planner', 'retrieval', 'graph', 'verifier', 'generator'].map((name) => ({ name, mode: 'offline-demo' })) })
       setDocuments((current) => [...current, { id: `demo-upload-${Date.now()}`, name: file.name, source: 'offline demo upload', chunks: 1 }])
     }
     finally { setUploading(false); event.target.value = '' }
@@ -117,7 +117,7 @@ function App() {
       <section className="library-section" id="library"><div className="section-title"><div><span className="kicker">02 / DOCUMENT LIBRARY</span><h2>What GraphMind knows.</h2></div><label className="upload-button"><Upload size={16} /> {uploading ? 'Extracting…' : 'Upload PDF or TXT'}<input type="file" accept=".pdf,.txt,.md" onChange={upload} disabled={uploading} /></label></div><div className="library-grid">{documents.map((document) => <article className="document-card" key={document.id}><div className="document-icon"><FileText size={20} /></div><div><strong>{document.name}</strong><span>{document.source === 'demo' ? 'Demo corpus' : 'Uploaded document'} · {document.chunks} chunks</span></div><ChevronRight size={16} /></article>)}</div></section>
       <section className="method-section" id="method"><div className="section-title"><div><span className="kicker">03 / TRANSPARENT BY DESIGN</span><h2>A practical pipeline.</h2></div></div><div className="method-grid">{[['01', 'Ingest', 'Extract text, detect sections, and preserve page metadata.'], ['02', 'Retrieve', 'Blend lexical matching with a dependency-free local vector index.'], ['03', 'Reason', 'Use graph context when available, with a local relationship fallback.'], ['04', 'Verify', 'Expose confidence, evidence, and citations instead of hiding uncertainty.']].map(([number, title, text]) => <article key={number}><span>{number}</span><h3>{title}</h3><p>{text}</p></article>)}</div></section>
     </main>
-    <footer><span>GraphMind / B.Tech prototype</span><span>{health ? `${health.chunks} indexed chunks · ${health.provider.provider || 'local'} provider` : 'FastAPI + React'}</span></footer>
+    <footer><span>GraphMind / B.Tech prototype</span><span>{health ? `${health.chunks} chunks · ${health.provider.provider || 'local'} provider · ${(health.agents || []).length || 5} agents` : 'FastAPI + React'}</span></footer>
   </div>
 }
 
