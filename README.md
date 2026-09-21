@@ -65,7 +65,7 @@ The backend can also run with `docker compose up --build`; persistent indexed da
 
 1. Open Render and choose **New → Blueprint**, then select this repository. Render detects `render.yaml` and creates the `graphmind-api` Docker web service.
 2. Set the prompted `GRAPHMIND_CORS_ORIGINS` value to `https://lazee01.github.io` (add `http://localhost:5173` for local development). Render supplies `PORT`; the Docker command binds to it automatically.
-3. The blueprint mounts a 1 GB persistent disk at `/var/data`, where `GRAPHMIND_DATA_DIR` stores the local index. The free plan may sleep and has provider/runtime limits.
+3. The free-tier blueprint stores `GRAPHMIND_DATA_DIR` under `/tmp/graphmind-data`, so indexed documents and SQLite sessions are ephemeral and can be lost on restart/redeploy. For production persistence, change the value to `/var/data` and add a Render paid-plan disk mounted at `/var/data` in the service settings (Render free services do not support disks).
 4. After deployment, verify `https://<service>.onrender.com/api/health`, then save that URL as the GitHub Actions repository variable `VITE_API_URL` and rerun the Pages workflow.
 
 No API keys are included. Add model credentials such as `GRAPHMIND_LLM_API_KEY` only in Render's environment settings. Final Render account authorization, service creation, and AI provider key entry require the repository owner.

@@ -8,7 +8,7 @@ services:
     plan: free
     envVars:
       - key: GRAPHMIND_DATA_DIR
-        value: /var/data
+        value: /tmp/graphmind-data
       - key: GRAPHMIND_CORS_ORIGINS
         sync: false
       - key: GRAPHMIND_MODEL_PROVIDER
@@ -17,7 +17,3 @@ services:
         sync: false
       - key: GRAPHMIND_LLM_API_URL
         sync: false
-    disk:
-      name: graphmind-data
-      mountPath: /var/data
-      sizeGB: 1
