@@ -6,17 +6,16 @@ import {
   Check,
   ChevronDown,
   CircleDot,
-  Code2,
   Database,
   Download,
   Github,
   Layers3,
-  Linkedin,
   Mail,
   MapPin,
   Menu,
   Network,
   Orbit,
+  Phone,
   Send,
   Sparkles,
   Terminal,
@@ -58,6 +57,8 @@ function App() {
 
   return (
     <div className="site-shell">
+      <div className="space-layer space-stars" aria-hidden="true" />
+      <div className="space-layer space-nebula" aria-hidden="true" />
       <div className="ambient ambient-one" />
       <div className="ambient ambient-two" />
       <header className="site-header">
@@ -141,7 +142,7 @@ function App() {
         </section>
 
         <section className="contact section-wrap" id="contact">
-          <div className="contact-card"><div className="contact-copy"><div className="section-kicker">06 — HAVE A QUESTION?</div><h2>Let’s make<br /><span>something meaningful.</span></h2><p>Whether you want to talk about an AI idea, a collaboration, or the future of intelligent systems — my inbox is open.</p><a className="email-link" href="mailto:rohgaming01@gmail.com">rohgaming01@gmail.com <ArrowUpRight size={17} /></a></div><div className="contact-aside"><div className="contact-orb"><Send size={28} /></div><span>Available for meaningful<br />conversations.</span><div className="socials"><a href="mailto:rohgaming01@gmail.com" aria-label="Email Rohit"><Mail size={18} /></a><a href="https://github.com/" target="_blank" rel="noreferrer" aria-label="GitHub placeholder"><Github size={18} /></a><a href="https://www.linkedin.com/" target="_blank" rel="noreferrer" aria-label="LinkedIn placeholder"><Linkedin size={18} /></a></div></div></div>
+          <div className="contact-card"><div className="contact-copy"><div className="section-kicker">06 — HAVE A QUESTION?</div><h2>Let’s make<br /><span>something meaningful.</span></h2><p>Whether you want to talk about an AI idea, a collaboration, or the future of intelligent systems — my inbox is open.</p><a className="email-link" href="mailto:rohgaming01@gmail.com">rohgaming01@gmail.com <ArrowUpRight size={17} /></a></div><div className="contact-aside"><div className="contact-orb"><Send size={28} /></div><span>Available for meaningful<br />conversations.</span><div className="socials"><a href="mailto:rohgaming01@gmail.com" aria-label="Email Rohit"><Mail size={18} /></a><a href="tel:+917003762633" aria-label="Call Rohit"><Phone size={18} /></a><a href="https://github.com/lazee01/portfolio" target="_blank" rel="noreferrer" aria-label="Rohit's GitHub repository"><Github size={18} /></a></div></div></div>
         </section>
       </main>
       <footer><span>© 2026 Rohit Paul</span><span>Designed & built with intention <span className="footer-heart">✦</span></span><a href="#home">Back to top ↑</a></footer>

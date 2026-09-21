@@ -17,6 +17,7 @@ Create a production build with `npm run build`, then preview it with `npm run pr
 2. In **Settings → Pages**, select **GitHub Actions** as the source.
 3. The included `.github/workflows/deploy-pages.yml` installs Node, runs `npm ci`, builds the site, and deploys `dist` with the official Pages actions.
 4. The committed `public/CNAME` file keeps the custom domain attached to Pages. The Vite base is `/`, which is correct for `rohitpaul.me`.
+5. If the first workflow run reports `Creating Pages deployment failed: Not Found`, enable Pages once in **Settings → Pages** with **Source: GitHub Actions**, then rerun the workflow. This is a repository setting rather than a code or credential requirement.
 
 The downloadable CV is kept at `public/rohit-paul-cv.txt` and is copied to the site root during the build.
 
