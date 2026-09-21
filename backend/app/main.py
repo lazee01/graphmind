@@ -11,9 +11,10 @@ from pydantic import BaseModel, Field
 from .core import GraphMindEngine
 
 DATA_DIR = Path(os.getenv("GRAPHMIND_DATA_DIR", "./data"))
+cors_origins = [origin.strip() for origin in os.getenv("GRAPHMIND_CORS_ORIGINS", "*").split(",") if origin.strip()]
 engine = GraphMindEngine(DATA_DIR)
 app = FastAPI(title="GraphMind API", version="0.1.0", description="Provenance-aware scientific literature QA prototype")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(CORSMiddleware, allow_origins=cors_origins, allow_methods=["*"], allow_headers=["*"])
 
 
 class AskRequest(BaseModel):
@@ -24,6 +25,11 @@ class AskRequest(BaseModel):
 @app.get("/api/health")
 def health() -> dict:
     return {"status": "ok", "documents": len(engine.documents), "chunks": len(engine.index.chunks), "neo4j": engine.graph.available, "provider": engine.models.status(), "agents": engine.orchestrator.status()["agents"]}
+
+
+@app.get("/")
+def root() -> dict:
+    return {"service": "graphmind-api", "health": "/api/health"}
 
 
 @app.get("/api/config")

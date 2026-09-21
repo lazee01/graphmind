@@ -33,6 +33,8 @@ Vite serves the GraphMind console at the displayed local URL. Set `VITE_API_URL`
 
 If the API is unavailable, the Pages frontend automatically switches to **Offline Demo Mode**. It provides a seeded scientific-literature corpus, grounded sample answer, evidence/citations, provider status, and simulated upload/query interactions so the published UI remains explorable. This mode is clearly labeled and does not imply that a backend or model is running.
 
+The Pages workflow reads the optional GitHub repository variable `VITE_API_URL` at build time. Set it to the deployed Render API URL (for example `https://graphmind-api.onrender.com`) under **Settings → Secrets and variables → Actions → Variables**. If unset, the public frontend intentionally remains in Offline Demo Mode until it can reach the default local API.
+
 ## Tests
 
 ```bash
@@ -52,6 +54,15 @@ The backend orchestration contract coordinates planner, retrieval, graph/entity,
 ## Docker
 
 The backend can also run with `docker compose up --build`; persistent indexed data is kept in the `graphmind-data` volume. Keep the Vite frontend on the host with `npm run dev`, or build it separately and set `VITE_API_URL` to the published API URL.
+
+## One-click Render backend deployment
+
+1. Open Render and choose **New → Blueprint**, then select this repository. Render detects `render.yaml` and creates the `graphmind-api` Docker web service.
+2. Set the prompted `GRAPHMIND_CORS_ORIGINS` value to `https://lazee01.github.io` (add `http://localhost:5173` for local development). Render supplies `PORT`; the Docker command binds to it automatically.
+3. The blueprint mounts a 1 GB persistent disk at `/var/data`, where `GRAPHMIND_DATA_DIR` stores the local index. The free plan may sleep and has provider/runtime limits.
+4. After deployment, verify `https://<service>.onrender.com/api/health`, then save that URL as the GitHub Actions repository variable `VITE_API_URL` and rerun the Pages workflow.
+
+No API keys are included. Add model credentials such as `GRAPHMIND_LLM_API_KEY` only in Render's environment settings. Final Render account authorization, service creation, and AI provider key entry require the repository owner.
 
 Create a production build with `npm run build`, then preview it with `npm run preview`.
 

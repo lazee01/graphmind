@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: graphmind-api
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /api/health
+    plan: free
+    envVars:
+      - key: GRAPHMIND_DATA_DIR
+        value: /var/data
+      - key: GRAPHMIND_CORS_ORIGINS
+        sync: false
+      - key: GRAPHMIND_MODEL_PROVIDER
+        value: local
+      - key: GRAPHMIND_LLM_API_KEY
+        sync: false
+      - key: GRAPHMIND_LLM_API_URL
+        sync: false
+    disk:
+      name: graphmind-data
+      mountPath: /var/data
+      sizeGB: 1
