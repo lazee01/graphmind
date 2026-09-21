@@ -11,7 +11,7 @@ import './styles.css'
 type Evidence = { id: string; document_name: string; text: string; page: number | null; section: string; score: number; citation: string }
 type Answer = { question?: string; answer: string; confidence: number; status: string; provider: unknown; evidence: Evidence[]; graph_context: string[]; plan: { question_type: string; entities: string[] }; verification?: { supported: boolean; mode?: string } }
 type Document = { id: string; name: string; source: string; chunks: number }
-const API = (import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000').replace(/\/$/, '')
+const API = (import.meta.env.VITE_API_URL || 'https://graphmind-api-zhrf.onrender.com').replace(/\/$/, '')
 const DEMO_DOCUMENTS: Document[] = [
   { id: 'demo-1', name: 'graphmind-methodology.txt', source: 'offline demo corpus', chunks: 4 },
   { id: 'demo-2', name: 'retrieval-systems-survey.txt', source: 'offline demo corpus', chunks: 3 },
