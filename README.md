@@ -15,8 +15,8 @@ Create a production build with `npm run build`, then preview it with `npm run pr
 
 1. Push the repository to GitHub.
 2. In **Settings → Pages**, select **GitHub Actions** as the source.
-3. Add a workflow that installs Node, runs `npm ci`, runs `npm run build`, and deploys the `dist` directory with the official Pages actions.
-4. If the site is served from a project path rather than a custom domain, set `base` in `vite.config.js` to `/<repository-name>/`.
+3. The included `.github/workflows/deploy-pages.yml` installs Node, runs `npm ci`, builds the site, and deploys `dist` with the official Pages actions.
+4. The committed `public/CNAME` file keeps the custom domain attached to Pages. The Vite base is `/`, which is correct for `rohitpaul.me`.
 
 The downloadable CV is kept at `public/rohit-paul-cv.txt` and is copied to the site root during the build.
 
