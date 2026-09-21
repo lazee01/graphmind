@@ -1,6 +1,26 @@
-# Rohit Paul — Portfolio
+# GraphMind — Evidence-first scientific literature QA
 
-A static React + Vite portfolio for Rohit Paul, an AI/ML Engineer focused on GenAI, NLP, retrieval, and knowledge systems.
+GraphMind is a runnable B.Tech prototype for asking questions over scientific literature. This repository now contains a FastAPI backend and a responsive React/Vite research console. The original portfolio visual components remain in `src/SpaceScene.tsx` for reuse.
+
+The default local engine is intentionally dependency-light: it extracts PDF/TXT/Markdown text, detects sections, creates overlapping provenance-aware chunks, indexes them with a deterministic TF-IDF vector fallback, blends lexical and semantic scores, builds a lightweight local relationship graph, and returns citation metadata plus an explicit confidence/status. Neo4j, hosted embeddings, and API LLM providers are optional extension points rather than hidden requirements.
+
+For the report-aligned production path, `backend/requirements-optional.txt` lists Sentence Transformers/Hugging Face, PyTorch, FAISS, Neo4j, LangChain, and PyMuPDF. These are intentionally opt-in because their native/runtime footprints are large; the API contracts do not change when a stronger provider is introduced. QLoRA is an experimentation path for fine-tuning a compatible local generator, not a requirement for this retrieval MVP. No credentials are committed.
+
+## Run the full prototype
+
+### Backend
+
+```bash
+cd backend
+python -m venv .venv
+# Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8000
+```
+
+The API stores its local index in `backend/data` by default. Copy `.env.example` to `.env` to configure `GRAPHMIND_DATA_DIR` or select a future LLM provider. Useful endpoints are `GET /api/health`, `GET /api/config`, `GET /api/documents`, `POST /api/documents`, and `POST /api/ask`.
+
+### Frontend
 
 ## Local development
 
@@ -8,6 +28,24 @@ A static React + Vite portfolio for Rohit Paul, an AI/ML Engineer focused on Gen
 npm install
 npm run dev
 ```
+
+Vite serves the GraphMind console at the displayed local URL. Set `VITE_API_URL` when the API is hosted elsewhere; otherwise it uses `http://127.0.0.1:8000`.
+
+## Tests
+
+```bash
+cd backend
+pytest -q
+cd ..
+npm run typecheck
+npm run build
+```
+
+The demo corpus is inserted automatically on first backend start, so the query and evidence workflow is usable immediately. PDF extraction depends on `pypdf`; scanned/image-only PDFs need OCR, which is deliberately not claimed by this MVP.
+
+## Docker
+
+The backend can also run with `docker compose up --build`; persistent indexed data is kept in the `graphmind-data` volume. Keep the Vite frontend on the host with `npm run dev`, or build it separately and set `VITE_API_URL` to the published API URL.
 
 Create a production build with `npm run build`, then preview it with `npm run preview`.
 

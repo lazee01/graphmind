@@ -1,0 +1,13 @@
+services:
+  graphmind-api:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      GRAPHMIND_DATA_DIR: /app/data
+      GRAPHMIND_LLM_PROVIDER: ${GRAPHMIND_LLM_PROVIDER:-local}
+    volumes:
+      - graphmind-data:/app/data
+
+volumes:
+  graphmind-data:
