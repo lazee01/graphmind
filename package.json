@@ -6,14 +6,23 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "typecheck": "tsc --noEmit",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@react-three/fiber": "^8.18.0",
     "@vitejs/plugin-react": "^4.3.4",
-    "vite": "^6.0.5",
+    "framer-motion": "^11.18.2",
+    "lucide-react": "^0.468.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "lucide-react": "^0.468.0"
+    "three": "^0.160.1",
+    "vite": "^6.0.5"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@types/three": "^0.186.0",
+    "typescript": "^7.0.2"
+  }
 }

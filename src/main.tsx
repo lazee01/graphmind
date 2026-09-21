@@ -1,4 +1,5 @@
-import { StrictMode, useEffect, useState } from 'react'
+import { StrictMode, Suspense, lazy, useEffect, useState } from 'react'
+import { motion, useReducedMotion } from 'framer-motion'
 import { createRoot } from 'react-dom/client'
 import {
   ArrowUpRight,
@@ -6,23 +7,24 @@ import {
   Check,
   ChevronDown,
   CircleDot,
-  Code2,
   Database,
   Download,
   Github,
   Layers3,
-  Linkedin,
   Mail,
   MapPin,
   Menu,
   Network,
   Orbit,
+  Phone,
   Send,
   Sparkles,
   Terminal,
   X,
 } from 'lucide-react'
 import './styles.css'
+
+const SpaceScene = lazy(() => import('./SpaceScene').then(({ SpaceScene }) => ({ default: SpaceScene })))
 
 const navItems = ['About', 'Skills', 'Experience', 'Projects', 'Contact']
 
@@ -34,30 +36,41 @@ const skillGroups = [
 ]
 
 const timeline = [
-  { date: '2024 — 2027', title: 'B.Tech, Computer Science & Engineering — AI & ML', org: 'Brainware University', detail: 'Building depth across machine learning, deep learning, NLP, generative AI, databases, and statistical analysis.' },
-  { date: '2021 — 2024', title: 'Diploma, Computer Science & Engineering', org: 'Brainware University', detail: 'CGPA 6.5 / 10 · Core foundation in programming, data structures, databases, and software development.' },
+  { date: '2024 — 2027', title: 'B.Tech CSE — AI & ML', org: 'Brainware University', detail: 'Building depth across machine learning, deep learning, NLP, generative AI, databases, and statistical analysis.' },
+  { date: '2021 — 2024', title: 'Diploma CSE', org: 'Brainware University', detail: 'CGPA 6.5 / 10 · Core foundation in programming, data structures, databases, and software development.' },
   { date: '2021', title: 'Higher Secondary (H.S.)', org: 'Barrackpore A. B. Model High School', detail: 'WBBSE · 67%' },
 ]
 
 function App() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [activeSection, setActiveSection] = useState('home')
+  const [isMobile, setIsMobile] = useState(false)
+  const reducedMotion = useReducedMotion()
 
   useEffect(() => {
+    const mediaQuery = window.matchMedia('(max-width: 700px)')
+    const updateMobile = () => setIsMobile(mediaQuery.matches)
+    updateMobile()
+    mediaQuery.addEventListener('change', updateMobile)
     const onScroll = () => {
       const sections = [...document.querySelectorAll('main section[id]')]
-      const current = sections.find((section) => window.scrollY >= section.offsetTop - 180)
+      const current = sections.find((section) => window.scrollY >= (section as HTMLElement).offsetTop - 180)
       if (current) setActiveSection(current.id)
     }
     window.addEventListener('scroll', onScroll, { passive: true })
     onScroll()
-    return () => window.removeEventListener('scroll', onScroll)
+    return () => {
+      window.removeEventListener('scroll', onScroll)
+      mediaQuery.removeEventListener('change', updateMobile)
+    }
   }, [])
 
   const closeMenu = () => setMenuOpen(false)
 
   return (
     <div className="site-shell">
+      <div className="space-layer space-stars" aria-hidden="true" />
+      <div className="space-layer space-nebula" aria-hidden="true" />
       <div className="ambient ambient-one" />
       <div className="ambient ambient-two" />
       <header className="site-header">
@@ -77,11 +90,16 @@ function App() {
         </nav>
       </header>
 
-      <main>
-        <section className="hero section-wrap" id="home">
-          <div className="hero-copy">
+      <main id="main-content">
+        <section className="hero section-wrap" id="home" aria-labelledby="hero-title">
+          <motion.div
+            className="hero-copy"
+            initial={reducedMotion ? false : { opacity: 0, y: 22 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.7, ease: 'easeOut' }}
+          >
             <div className="eyebrow"><span className="eyebrow-line" /> AI / ML ENGINEER <span className="status-dot" /> OPEN TO OPPORTUNITIES</div>
-            <h1>Turning <em>intelligence</em><br />into <span className="outlined">impact.</span></h1>
+            <h1 id="hero-title">Turning <em>intelligence</em><br />into <span className="outlined">impact.</span></h1>
             <p className="hero-lede">I’m Rohit — a fresher AI/ML engineer exploring the space where <strong>language, knowledge, and systems</strong> meet.</p>
             <div className="hero-actions">
               <a className="button button-primary" href="#projects">See my work <ArrowUpRight size={17} /></a>
@@ -92,8 +110,9 @@ function App() {
               <span className="meta-divider" />
               <span>Generative AI · NLP · Retrieval</span>
             </div>
-          </div>
+          </motion.div>
           <div className="hero-art" aria-hidden="true">
+            {reducedMotion !== true && !isMobile && <Suspense fallback={null}><SpaceScene /></Suspense>}
             <div className="particle-field"><i /><i /><i /><i /><i /><i /><i /><i /></div>
             <div className="orbital orbital-outer"><span className="orbit-node node-a" /><span className="orbit-node node-b" /></div>
             <div className="orbital orbital-middle"><span className="orbit-node node-c" /></div>
@@ -105,10 +124,10 @@ function App() {
           <a className="scroll-cue" href="#about"><span>Scroll to explore</span><ChevronDown size={16} /></a>
         </section>
 
-        <section className="about section-wrap" id="about">
+        <section className="about section-wrap" id="about" aria-labelledby="about-title">
           <div className="section-kicker">01 — THE HUMAN BEHIND THE MODELS</div>
           <div className="about-grid">
-            <div><h2>Curious by default.<br /><span>Rigorous by design.</span></h2></div>
+            <div><h2 id="about-title">Curious by default.<br /><span>Rigorous by design.</span></h2></div>
             <div className="about-copy">
               <p>I’m an AI/ML Engineer with a foundation across <strong>Python, machine learning, deep learning, NLP, and LLMs</strong>. I enjoy taking an ambiguous problem, finding the signal inside it, and shaping a system that can be trusted.</p>
               <p>Right now, I’m focused on reliable retrieval systems, knowledge graphs, and agentic workflows — making AI outputs more grounded, traceable, and useful in the real world.</p>
@@ -117,31 +136,31 @@ function App() {
           </div>
         </section>
 
-        <section className="skills section-wrap" id="skills">
-          <div className="section-heading"><div><div className="section-kicker">02 — MY TOOLBOX</div><h2>Built to go from <span>notebook to north star.</span></h2></div><p>Tools are only useful when they help ideas travel further. This is the stack I use to get there.</p></div>
+        <section className="skills section-wrap" id="skills" aria-labelledby="skills-title">
+          <div className="section-heading"><div><div className="section-kicker">02 — MY TOOLBOX</div><h2 id="skills-title">Built to go from <span>notebook to north star.</span></h2></div><p>Tools are only useful when they help ideas travel further. This is the stack I use to get there.</p></div>
           <div className="skill-grid">{skillGroups.map(({ icon: Icon, title, accent, items }) => <article className={`skill-card ${accent}`} key={title}><div className="skill-icon"><Icon size={21} /></div><h3>{title}</h3><div className="tag-list">{items.map((item) => <span key={item}>{item}</span>)}</div></article>)}</div>
         </section>
 
-        <section className="experience section-wrap" id="experience">
+        <section className="experience section-wrap" id="experience" aria-labelledby="experience-title">
           <div className="section-kicker">03 — THE ROAD SO FAR</div>
-          <div className="experience-heading"><h2>Learning in <span>layers.</span></h2><p>Every chapter adds a new way to frame the problem.</p></div>
+          <div className="experience-heading"><h2 id="experience-title">Learning in <span>layers.</span></h2><p>Every chapter adds a new way to frame the problem.</p></div>
           <div className="timeline">{timeline.map((item, index) => <article className="timeline-item" key={item.title}><div className="timeline-marker"><span>0{index + 1}</span></div><div className="timeline-date">{item.date}</div><div className="timeline-content"><h3>{item.title}</h3><p className="timeline-org">{item.org}</p><p>{item.detail}</p></div></article>)}</div>
         </section>
 
-        <section className="projects section-wrap" id="projects">
+        <section className="projects section-wrap" id="projects" aria-labelledby="projects-title">
           <div className="section-kicker">04 — SELECTED PROJECT</div>
-          <article className="project-feature">
+          <article className="project-feature" aria-labelledby="projects-title">
             <div className="project-visual"><div className="visual-grid" /><div className="graph-line line-one" /><div className="graph-line line-two" /><div className="graph-node graph-main"><Database size={22} /><span>GraphMind</span></div><div className="graph-node graph-small small-one">PDF</div><div className="graph-node graph-small small-two">FAISS</div><div className="graph-node graph-small small-three">Neo4j</div><div className="visual-caption">EVIDENCE / RETRIEVAL / REASONING</div></div>
-            <div className="project-copy"><div className="project-type"><Sparkles size={15} /> FLAGSHIP BUILD</div><h2>GraphMind<span>.</span></h2><h3>Scientific Literature QA System</h3><p>A research assistant in progress — combining RAG, vector search, knowledge graphs, and multi-agent systems to turn dense scientific PDFs into answers that show their work.</p><div className="project-points"><span><Check size={14} /> PDF processing & chunking</span><span><Check size={14} /> Evidence-grounded verification</span><span><Check size={14} /> Citation tracking & graph reasoning</span></div><div className="project-stack">{['Python', 'RAG', 'FAISS', 'Neo4j', 'LangGraph'].map((item) => <span key={item}>{item}</span>)}</div><span className="project-status"><span /> Currently developing</span></div>
+            <div className="project-copy"><div className="project-type"><Sparkles size={15} /> FLAGSHIP BUILD</div><h2 id="projects-title">GraphMind<span>.</span></h2><h3>Scientific Literature QA System</h3><p>A research assistant in progress — combining RAG, vector search, knowledge graphs, and multi-agent systems to turn dense scientific PDFs into answers that show their work.</p><div className="project-points"><span><Check size={14} /> PDF processing & chunking</span><span><Check size={14} /> Evidence-grounded verification</span><span><Check size={14} /> Citation tracking & graph reasoning</span></div><div className="project-stack">{['Python', 'RAG', 'FAISS', 'Neo4j', 'LangGraph'].map((item) => <span key={item}>{item}</span>)}</div><div className="project-actions"><span className="project-status"><span /> Currently developing</span><a className="project-link" href="https://github.com/lazee01/portfolio" target="_blank" rel="noreferrer">View repository <ArrowUpRight size={15} /></a></div></div>
           </article>
         </section>
 
         <section className="education section-wrap">
-          <div className="education-card"><div><div className="section-kicker">05 — LEARNING NEVER STOPS</div><h2>Certified curiosity.</h2></div><div className="cert-detail"><div className="cert-seal"><Orbit size={22} /></div><div><h3>Elements of AI</h3><p>University of Helsinki · September 2026</p><small>Credential ID: 6tfcqp4lrry</small></div></div><div className="coursework"><span>Coursework</span><p>ML · DL · NLP · GenAI · LLMs · DSA · DBMS · Python · Statistics / Data Analysis</p></div></div>
+          <div className="education-card"><div><div className="section-kicker">05 — LEARNING NEVER STOPS</div><h2>Certified curiosity.</h2></div><div className="cert-detail"><div className="cert-seal"><Orbit size={22} /></div><div><h3>Elements of AI</h3><p>University of Helsinki · Sep 2026</p><small>Credential ID: 6tfcqp4lrry</small></div></div><div className="coursework"><span>Coursework</span><p>ML · DL · NLP · GenAI · LLMs · DSA · DBMS · Python · Statistics / Data Analysis</p></div></div>
         </section>
 
-        <section className="contact section-wrap" id="contact">
-          <div className="contact-card"><div className="contact-copy"><div className="section-kicker">06 — HAVE A QUESTION?</div><h2>Let’s make<br /><span>something meaningful.</span></h2><p>Whether you want to talk about an AI idea, a collaboration, or the future of intelligent systems — my inbox is open.</p><a className="email-link" href="mailto:rohgaming01@gmail.com">rohgaming01@gmail.com <ArrowUpRight size={17} /></a></div><div className="contact-aside"><div className="contact-orb"><Send size={28} /></div><span>Available for meaningful<br />conversations.</span><div className="socials"><a href="mailto:rohgaming01@gmail.com" aria-label="Email Rohit"><Mail size={18} /></a><a href="https://github.com/" target="_blank" rel="noreferrer" aria-label="GitHub placeholder"><Github size={18} /></a><a href="https://www.linkedin.com/" target="_blank" rel="noreferrer" aria-label="LinkedIn placeholder"><Linkedin size={18} /></a></div></div></div>
+        <section className="contact section-wrap" id="contact" aria-labelledby="contact-title">
+          <div className="contact-card"><div className="contact-copy"><div className="section-kicker">06 — HAVE A QUESTION?</div><h2 id="contact-title">Let’s make<br /><span>something meaningful.</span></h2><p>Whether you want to talk about an AI idea, a collaboration, or the future of intelligent systems — my inbox is open.</p><a className="email-link" href="mailto:rohgaming01@gmail.com">rohgaming01@gmail.com <ArrowUpRight size={17} /></a></div><div className="contact-aside"><div className="contact-orb"><Send size={28} /></div><span>Available for meaningful<br />conversations.</span><div className="socials"><a href="mailto:rohgaming01@gmail.com" aria-label="Email Rohit"><Mail size={18} /></a><a href="tel:+917003762633" aria-label="Call Rohit"><Phone size={18} /></a><a href="https://github.com/lazee01/portfolio" target="_blank" rel="noreferrer" aria-label="Rohit's GitHub repository"><Github size={18} /></a></div></div></div>
         </section>
       </main>
       <footer><span>© 2026 Rohit Paul</span><span>Designed & built with intention <span className="footer-heart">✦</span></span><a href="#home">Back to top ↑</a></footer>
@@ -149,4 +168,6 @@ function App() {
   )
 }
 
-createRoot(document.getElementById('root')).render(<StrictMode><App /></StrictMode>)
+const root = document.getElementById('root')
+if (!root) throw new Error('App root element was not found')
+createRoot(root).render(<StrictMode><App /></StrictMode>)
