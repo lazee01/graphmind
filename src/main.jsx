@@ -94,6 +94,7 @@ function App() {
             </div>
           </div>
           <div className="hero-art" aria-hidden="true">
+            <div className="particle-field"><i /><i /><i /><i /><i /><i /><i /><i /></div>
             <div className="orbital orbital-outer"><span className="orbit-node node-a" /><span className="orbit-node node-b" /></div>
             <div className="orbital orbital-middle"><span className="orbit-node node-c" /></div>
             <div className="core"><BrainCircuit size={54} strokeWidth={1.25} /></div>
