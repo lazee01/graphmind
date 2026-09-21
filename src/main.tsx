@@ -9,15 +9,30 @@ import {
 import './styles.css'
 
 type Evidence = { id: string; document_name: string; text: string; page: number | null; section: string; score: number; citation: string }
-type Answer = { answer: string; confidence: number; status: string; provider: unknown; evidence: Evidence[]; graph_context: string[]; plan: { question_type: string; entities: string[] } }
+type Answer = { question?: string; answer: string; confidence: number; status: string; provider: unknown; evidence: Evidence[]; graph_context: string[]; plan: { question_type: string; entities: string[] }; verification?: { supported: boolean; mode?: string } }
 type Document = { id: string; name: string; source: string; chunks: number }
 const API = (import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000').replace(/\/$/, '')
+const DEMO_DOCUMENTS: Document[] = [
+  { id: 'demo-1', name: 'graphmind-methodology.txt', source: 'offline demo corpus', chunks: 4 },
+  { id: 'demo-2', name: 'retrieval-systems-survey.txt', source: 'offline demo corpus', chunks: 3 },
+]
+const DEMO_EVIDENCE: Evidence[] = [
+  { id: 'demo-e1', document_name: 'graphmind-methodology.txt', text: 'Every passage keeps its source document, section, page when available, and stable chunk identifier so answers can be audited.', page: 2, section: 'Evidence and provenance', score: 0.96, citation: 'graphmind-methodology.txt (p. 2)' },
+  { id: 'demo-e2', document_name: 'retrieval-systems-survey.txt', text: 'Hybrid retrieval blends lexical matching with semantic vectors to improve recall while preserving interpretable evidence signals.', page: 4, section: 'Retrieval', score: 0.84, citation: 'retrieval-systems-survey.txt (p. 4)' },
+]
+const DEMO_ANSWER: Answer = {
+  answer: 'GraphMind preserves the source document, section, page when available, and a stable chunk identifier for each passage. This provenance lets a reader audit the answer instead of trusting an opaque generated claim.',
+  confidence: 0.94, status: 'grounded', provider: { provider: 'offline-demo', active: true }, evidence: DEMO_EVIDENCE,
+  graph_context: ['provenance relates to evidence', 'retrieval relates to vectors'],
+  plan: { question_type: 'factoid', entities: ['provenance', 'passage'] }, verification: { supported: true, mode: 'demo' },
+}
 
 function App() {
   const [question, setQuestion] = useState('What does GraphMind preserve for each passage?')
   const [answer, setAnswer] = useState<Answer | null>(null)
   const [documents, setDocuments] = useState<Document[]>([])
   const [health, setHealth] = useState<{ status: string; chunks: number; provider: { provider?: string; active?: boolean }; neo4j: boolean } | null>(null)
+  const [offline, setOffline] = useState(false)
   const [busy, setBusy] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState('')
@@ -29,7 +44,9 @@ function App() {
       setHealth(await healthResponse.json())
       setDocuments(await documentsResponse.json())
     } catch {
-      setError('Connect the FastAPI backend to enable uploads and live retrieval. Demo answers are available once it is running.')
+      setOffline(true)
+      setHealth({ status: 'demo', chunks: 7, provider: { provider: 'offline-demo', active: true }, neo4j: false })
+      setDocuments(DEMO_DOCUMENTS)
     }
   }
   useEffect(() => { void loadWorkspace() }, [])
@@ -39,10 +56,20 @@ function App() {
     if (!question.trim()) return
     setBusy(true); setError('')
     try {
+      if (offline) {
+        await new Promise((resolve) => window.setTimeout(resolve, 350))
+        setAnswer({ ...DEMO_ANSWER, question })
+        return
+      }
       const response = await fetch(`${API}/api/ask`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question }) })
       if (!response.ok) throw new Error((await response.json()).detail || 'Query failed')
       setAnswer(await response.json())
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Query failed') }
+    } catch (reason) {
+      setOffline(true)
+      setHealth({ status: 'demo', chunks: 7, provider: { provider: 'offline-demo', active: true }, neo4j: false })
+      setDocuments(DEMO_DOCUMENTS)
+      setAnswer({ ...DEMO_ANSWER, question })
+    }
     finally { setBusy(false) }
   }
 
@@ -52,10 +79,19 @@ function App() {
     setUploading(true); setError('')
     const form = new FormData(); form.append('file', file)
     try {
+      if (offline) {
+        await new Promise((resolve) => window.setTimeout(resolve, 500))
+        setDocuments((current) => [...current, { id: `demo-upload-${Date.now()}`, name: file.name, source: 'offline demo upload', chunks: 1 }])
+        return
+      }
       const response = await fetch(`${API}/api/documents`, { method: 'POST', body: form })
       if (!response.ok) throw new Error((await response.json()).detail || 'Upload failed')
       await loadWorkspace()
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Upload failed') }
+    } catch (reason) {
+      setOffline(true)
+      setHealth({ status: 'demo', chunks: 7, provider: { provider: 'offline-demo', active: true }, neo4j: false })
+      setDocuments((current) => [...current, { id: `demo-upload-${Date.now()}`, name: file.name, source: 'offline demo upload', chunks: 1 }])
+    }
     finally { setUploading(false); event.target.value = '' }
   }
 
@@ -63,7 +99,7 @@ function App() {
     <header className="topbar">
       <a className="logo" href="#top"><span className="logo-mark"><GitBranch size={18} /></span><span>graph<span>mind</span></span></a>
       <nav><a className="active" href="#ask">Ask literature</a><a href="#library">Library</a><a href="#method">How it works</a></nav>
-      <div className="top-status"><CircleDot size={13} /> {health?.status === 'ok' ? 'LOCAL ENGINE READY' : 'CONNECTING'} <Settings2 size={15} /></div>
+      <div className={`top-status ${offline ? 'demo-status' : ''}`}><CircleDot size={13} /> {offline ? 'OFFLINE DEMO MODE' : health?.status === 'ok' ? 'API ENGINE READY' : 'CONNECTING'} <Settings2 size={15} /></div>
     </header>
     <main id="top">
       <section className="hero">

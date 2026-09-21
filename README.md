@@ -31,6 +31,8 @@ npm run dev
 
 Vite serves the GraphMind console at the displayed local URL. Set `VITE_API_URL` when the API is hosted elsewhere; otherwise it uses `http://127.0.0.1:8000`.
 
+If the API is unavailable, the Pages frontend automatically switches to **Offline Demo Mode**. It provides a seeded scientific-literature corpus, grounded sample answer, evidence/citations, provider status, and simulated upload/query interactions so the published UI remains explorable. This mode is clearly labeled and does not imply that a backend or model is running.
+
 ## Tests
 
 ```bash
@@ -42,6 +44,8 @@ npm run build
 ```
 
 The demo corpus is inserted automatically on first backend start, so the query and evidence workflow is usable immediately. PDF extraction depends on `pypdf`; scanned/image-only PDFs need OCR, which is deliberately not claimed by this MVP.
+
+The model integrations use pretrained configurable models; none are trained in this repository. Fine-tuning/QLoRA requires a prepared dataset, a compatible base model, GPU resources, and a separate training workflow.
 
 ## Docker
 
