@@ -11,6 +11,7 @@ from urllib.request import Request, urlopen
 class ModelProvider:
     def __init__(self) -> None:
         self.name = os.getenv("GRAPHMIND_MODEL_PROVIDER", "local").lower()
+        self.slots = [slot.strip() for slot in os.getenv("GRAPHMIND_PROVIDER_SLOTS", self.name).split(",") if slot.strip()][:5] or ["local"]
         self.embedding_model = os.getenv("GRAPHMIND_EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
         self.generation_model = os.getenv("GRAPHMIND_GENERATION_MODEL", "google/flan-t5-base")
         self._embedder: Any = None
@@ -24,6 +25,7 @@ class ModelProvider:
             "generation_model": self.generation_model if configured else None,
             "active": bool(self._embedder or self._generator) if configured else True,
             "fallback": "tfidf-and-extractive-local",
+            "slots": [{"name": slot, "configured": slot == "local" or bool(os.getenv("GRAPHMIND_LLM_API_KEY"))} for slot in self.slots],
         }
 
     def _load_embedding_model(self) -> Any:

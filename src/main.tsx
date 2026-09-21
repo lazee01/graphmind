@@ -1,4 +1,4 @@
-import { ChangeEvent, FormEvent, useEffect, useState } from 'react'
+﻿import { ChangeEvent, FormEvent, useEffect, useState } from 'react'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import {
@@ -36,10 +36,19 @@ function App() {
   const [busy, setBusy] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState('')
+  const [authOpen, setAuthOpen] = useState(false)
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [user, setUser] = useState<{ email: string } | null>(null)
+  const apiHeaders = (): Record<string, string> => {
+    const token = localStorage.getItem('graphmind_token')
+    return token ? { Authorization: `Bearer ${token}` } : {}
+  }
 
   const loadWorkspace = async () => {
     try {
-      const [healthResponse, documentsResponse] = await Promise.all([fetch(`${API}/api/health`), fetch(`${API}/api/documents`)])
+      const [healthResponse, documentsResponse] = await Promise.all([fetch(`${API}/api/health`), fetch(`${API}/api/documents`, { headers: apiHeaders() })])
       if (!healthResponse.ok || !documentsResponse.ok) throw new Error('API unavailable')
       setHealth(await healthResponse.json())
       setDocuments(await documentsResponse.json())
@@ -61,7 +70,7 @@ function App() {
         setAnswer({ ...DEMO_ANSWER, question })
         return
       }
-      const response = await fetch(`${API}/api/ask`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question }) })
+      const response = await fetch(`${API}/api/ask`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...apiHeaders() }, body: JSON.stringify({ question }) })
       if (!response.ok) throw new Error((await response.json()).detail || 'Query failed')
       setAnswer(await response.json())
     } catch (reason) {
@@ -84,7 +93,7 @@ function App() {
         setDocuments((current) => [...current, { id: `demo-upload-${Date.now()}`, name: file.name, source: 'offline demo upload', chunks: 1 }])
         return
       }
-      const response = await fetch(`${API}/api/documents`, { method: 'POST', body: form })
+      const response = await fetch(`${API}/api/documents`, { method: 'POST', headers: apiHeaders(), body: form })
       if (!response.ok) throw new Error((await response.json()).detail || 'Upload failed')
       await loadWorkspace()
     } catch (reason) {
@@ -95,12 +104,24 @@ function App() {
     finally { setUploading(false); event.target.value = '' }
   }
 
+  const authenticate = async (event: FormEvent) => {
+    event.preventDefault(); setError('')
+    try {
+      const response = await fetch(`${API}/api/auth/${authMode}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) })
+      if (!response.ok) throw new Error((await response.json()).detail || 'Authentication failed')
+      const payload = await response.json()
+      if (authMode === 'register') { setAuthMode('login'); setError('Account created. Sign in to continue.'); return }
+      localStorage.setItem('graphmind_token', payload.access_token); setUser(payload.user); setAuthOpen(false)
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Authentication failed') }
+  }
+
   return <div className="app-shell">
     <header className="topbar">
       <a className="logo" href="#top"><span className="logo-mark"><GitBranch size={18} /></span><span>graph<span>mind</span></span></a>
       <nav><a className="active" href="#ask">Ask literature</a><a href="#library">Library</a><a href="#method">How it works</a></nav>
-      <div className={`top-status ${offline ? 'demo-status' : ''}`}><CircleDot size={13} /> {offline ? 'OFFLINE DEMO MODE' : health?.status === 'ok' ? 'API ENGINE READY' : 'CONNECTING'} <Settings2 size={15} /></div>
+      <div className="header-actions">{!offline && <button className="auth-button" onClick={() => setAuthOpen(true)}>{user ? user.email : 'Sign in'}</button>}<div className={`top-status ${offline ? 'demo-status' : ''}`}><CircleDot size={13} /> {offline ? 'OFFLINE DEMO MODE' : health?.status === 'ok' ? 'API ENGINE READY' : 'CONNECTING'} <Settings2 size={15} /></div></div>
     </header>
+    {authOpen && <div className="auth-backdrop" onClick={() => setAuthOpen(false)}><form className="auth-card" onSubmit={authenticate} onClick={(event) => event.stopPropagation()}><button type="button" className="auth-close" onClick={() => setAuthOpen(false)}><X size={16} /></button><span className="kicker">SECURE WORKSPACE</span><h2>{authMode === 'login' ? 'Welcome back.' : 'Create an account.'}</h2><p>Sessions are stored securely by the configured backend. Offline demo mode never sends credentials.</p><input type="email" required placeholder="you@example.com" value={email} onChange={(event) => setEmail(event.target.value)} /><input type="password" required minLength={10} placeholder="Password (10+ characters)" value={password} onChange={(event) => setPassword(event.target.value)} /><button className="auth-submit">{authMode === 'login' ? 'Sign in' : 'Register'}</button><button type="button" className="auth-switch" onClick={() => setAuthMode(authMode === 'login' ? 'register' : 'login')}>{authMode === 'login' ? 'Need an account? Register' : 'Already registered? Sign in'}</button></form></div>}
     <main id="top">
       <section className="hero">
         <div className="hero-copy"><div className="eyebrow"><Sparkles size={14} /> SCIENTIFIC LITERATURE QA</div><h1>Answers that<br /><em>show their work.</em></h1><p>GraphMind turns dense papers into grounded answers with provenance, hybrid retrieval, and an auditable evidence trail.</p><div className="hero-chips"><span><ShieldCheck size={14} /> Evidence-first</span><span><GitBranch size={14} /> Graph-aware</span><span><CircleDot size={14} /> Runs locally</span></div></div>

@@ -49,6 +49,12 @@ The demo corpus is inserted automatically on first backend start, so the query a
 
 The model integrations use pretrained configurable models; none are trained in this repository. Fine-tuning/QLoRA requires a prepared dataset, a compatible base model, GPU resources, and a separate training workflow.
 
+Authentication is production-ready in shape but opt-in for the public demo: `/api/auth/register`, `/api/auth/login`, `/api/auth/logout`, and `/api/auth/me` use SQLite-backed PBKDF2 password hashes and expiring bearer sessions. Set `GRAPHMIND_REQUIRE_AUTH=true` behind HTTPS to protect document and query routes; the Pages offline demo does not require an account. Never expose API keys in the frontend.
+
+Scanned PDFs are supported when the optional OCR dependencies and system Tesseract are installed. Text PDFs use PyMuPDF when available, then pypdf; image-only PDFs return a clear setup error if OCR is not installed.
+
+This pass also adds a production-oriented chat shell: authenticated session controls, responsive workspace/library/query surfaces, loading/error states, evidence cards, and configurable provider status. The frontend stores only the bearer token in browser storage for the configured backend; use HTTPS and a stricter deployment policy for production.
+
 The backend orchestration contract coordinates planner, retrieval, graph/entity, verifier, and generator agents as structured messages (`plan→retrieve→graph→fuse→verify→generate`). In local mode these are deterministic fallback agents; real model-backed calls require a user-supplied provider configuration and a hosted/running backend. The public Pages deployment intentionally uses Offline Demo Mode because GitHub Pages cannot run FastAPI or protect model API keys.
 
 ## Docker
