@@ -170,7 +170,13 @@ class GraphStore:
     edges: list[dict[str, str]] = field(default_factory=list)
     available: bool = False
 
+    def __post_init__(self) -> None:
+        if not isinstance(self.nodes, set):
+            self.nodes = set(self.nodes)
+
     def ingest(self, chunks: list[Chunk], models: ModelProvider | None = None) -> None:
+        if not isinstance(self.nodes, set):
+            self.nodes = set(self.nodes)
         for chunk in chunks:
             entities = (models.entities(chunk.text) if models else None) or [word for word in tokenize(chunk.text) if len(word) > 5][:8]
             self.nodes.update(entities)
@@ -206,7 +212,9 @@ class GraphMindEngine:
         ]
         self.index.add(chunks)
         self.documents = payload.get("documents", {})
-        self.graph = GraphStore(**payload.get("graph", {}))
+        graph_data = dict(payload.get("graph", {}))
+        graph_data["nodes"] = set(graph_data.get("nodes", []))
+        self.graph = GraphStore(**graph_data)
 
     def _save(self) -> None:
         graph = asdict(self.graph)
