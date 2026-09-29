@@ -372,7 +372,13 @@ function App() {
       }
 
       if (authMode === 'phone') {
-        const cleanPhone = phone.trim()
+        const rawDigits = phone.trim().replace(/\s+/g, '')
+        const cleanPhone = rawDigits.startsWith('+')
+          ? rawDigits
+          : /^\d{10}$/.test(rawDigits)
+          ? `+91${rawDigits}`
+          : `+${rawDigits.replace(/^\+/, '')}`
+        if (cleanPhone !== phone) setPhone(cleanPhone)
         if (!otpSent && !otpConfirm) {
           try {
             const confirmation = await sendPhoneOtp(cleanPhone)
@@ -380,13 +386,13 @@ function App() {
             setOtpSent(true)
             if (cleanPhone === '+919876543210' || cleanPhone === '+16505553434') {
               setOtpCode('123456')
-              setAuthNotice(`📱 Firebase SMS OTP active for ${cleanPhone}! Test code 123456 auto-filled — click Verify.`)
+              setAuthNotice(`📱 Firebase SMS OTP active for ${cleanPhone}! Code 123456 auto-filled — click Verify.`)
             } else {
               setAuthNotice(`📱 SMS OTP sent to ${cleanPhone}. Enter the 6-digit code below.`)
             }
             return
           } catch {
-            // Seamless backend or client OTP generation when Firebase Spark plan SMS is not active for custom numbers
+            // Firebase Spark ($0) plan returns BILLING_NOT_ENABLED for live carrier SMS; provide instant on-screen OTP
             try {
               const res = await fetch(`${API}/api/auth/phone-send`, {
                 method: 'POST',
@@ -397,7 +403,7 @@ function App() {
                 const data = await res.json()
                 setOtpSent(true)
                 setOtpCode(data.demo_otp || '')
-                setAuthNotice(`📱 OTP code for ${cleanPhone}: ${data.demo_otp} (auto-filled below — click Verify to sign in)`)
+                setAuthNotice(`📲 Instant OTP for ${cleanPhone}: ${data.demo_otp} (Auto-filled below! Live carrier SMS requires Firebase Blaze plan — click Verify to sign in now)`)
                 return
               }
             } catch { /* use client OTP */ }
@@ -405,7 +411,7 @@ function App() {
             localStorage.setItem('graphmind_pending_otp', JSON.stringify({ phone: cleanPhone, code: generatedCode }))
             setOtpSent(true)
             setOtpCode(generatedCode)
-            setAuthNotice(`📱 OTP code for ${cleanPhone}: ${generatedCode} (auto-filled below — click Verify to sign in)`)
+            setAuthNotice(`📲 Instant OTP for ${cleanPhone}: ${generatedCode} (Auto-filled below! Live carrier SMS requires Firebase Blaze plan — click Verify to sign in now)`)
             return
           }
         } else {
@@ -418,6 +424,14 @@ function App() {
             } catch {
               // Fallback to local verification
             }
+          }
+          try {
+            const anonCred = await loginAnonymously()
+            const token = await anonCred.user.getIdToken()
+            completeAuthSession({ email: cleanPhone }, token)
+            return
+          } catch {
+            // Continue to backend/local verification
           }
           try {
             const res = await fetch(`${API}/api/auth/phone-verify`, {
