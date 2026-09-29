@@ -7,14 +7,19 @@ import {
   Sparkles, Trash2, Upload, X,
 } from 'lucide-react'
 import {
-  loginWithEmail, registerWithEmail, loginWithGoogle, logout as firebaseLogout, onAuthChange, syncQueryToFirebase,
+  loginWithEmail, registerWithEmail, loginWithGoogle, loginWithGitHub, loginWithMicrosoft,
+  loginAnonymously, sendMagicLink, completeMagicLinkSignIn, sendPhoneOtp, resetPassword,
+  logout as firebaseLogout, onAuthChange, syncQueryToFirebase, type ConfirmationResult,
 } from './lib/firebase'
 import './styles.css'
 
 type Evidence = { id: string; document_name: string; text: string; page: number | null; section: string; score: number; citation: string }
 type Answer = { question?: string; mode?: string; answer: string; confidence: number; status: string; provider: any; evidence: Evidence[]; graph_context: string[]; plan: { question_type: string; entities: string[] }; verification?: { supported: boolean; mode?: string } }
 type Document = { id: string; name: string; source: string; chunks: number }
-type ChatTurn = { role: 'user' | 'assistant'; content: string; model?: string; confidence?: number }
+type ChatTurn = { role: 'user' | 'assistant'; content: string; model?: string; confidence?: number; mode?: string }
+type ChatSession = { id: string; title: string; updatedAt: number; turns: ChatTurn[]; lastAnswer: Answer | null }
+
+const SESSIONS_KEY = 'graphmind_sessions_v1'
 
 const DEFAULT_API = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
   ? 'http://127.0.0.1:8000'
@@ -45,14 +50,27 @@ const DEMO_ANSWER: Answer = {
   plan: { question_type: 'factoid', entities: ['provenance', 'passage'] }, verification: { supported: true, mode: 'demo' },
 }
 
+function loadSavedSessions(): ChatSession[] {
+  try {
+    const raw = localStorage.getItem(SESSIONS_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed
+    }
+  } catch {
+    // Ignore storage errors
+  }
+  return [{ id: 'session-initial', title: 'New Research Thread', updatedAt: Date.now(), turns: [], lastAnswer: null }]
+}
+
 function App() {
+  const [sessions, setSessions] = useState<ChatSession[]>(() => loadSavedSessions())
+  const [activeSessionId, setActiveSessionId] = useState<string>(() => loadSavedSessions()[0].id)
   const [question, setQuestion] = useState('What does GraphMind preserve for each passage?')
   const [mode, setMode] = useState<'rag' | 'hybrid' | 'chat'>('rag')
   const [modelPreference, setModelPreference] = useState<string>('auto')
   const [topK, setTopK] = useState<number>(6)
   const [showEvidenceInChat, setShowEvidenceInChat] = useState<boolean>(false)
-  const [chatHistory, setChatHistory] = useState<ChatTurn[]>([])
-  const [answer, setAnswer] = useState<Answer | null>(null)
   const [documents, setDocuments] = useState<Document[]>([])
   const [selectedDocument, setSelectedDocument] = useState<string | null>(null)
   const [health, setHealth] = useState<{ status: string; chunks: number; provider: { provider?: string; generation_model?: string; gemini_model?: string; active?: boolean; slots?: { name: string; configured: boolean }[] }; neo4j: boolean; agents?: { name: string; mode: string }[] } | null>(null)
@@ -60,12 +78,73 @@ function App() {
   const [busy, setBusy] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState('')
+  const [authNotice, setAuthNotice] = useState('')
   const [authOpen, setAuthOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [authMode, setAuthMode] = useState<'login' | 'register'>('login')
+  const [authMode, setAuthMode] = useState<'login' | 'register' | 'magic' | 'phone' | 'reset'>('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [phone, setPhone] = useState('')
+  const [otpCode, setOtpCode] = useState('')
+  const [otpConfirm, setOtpConfirm] = useState<ConfirmationResult | null>(null)
   const [user, setUser] = useState<{ email: string } | null>(null)
+
+  const activeSession = sessions.find((s) => s.id === activeSessionId) || sessions[0]
+  const chatHistory = activeSession?.turns || []
+  const answer = activeSession?.lastAnswer || null
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions.slice(0, 25)))
+    } catch {
+      // Ignore quota errors
+    }
+  }, [sessions])
+
+  const createNewSession = () => {
+    const id = `session-${Date.now()}`
+    const fresh: ChatSession = { id, title: 'New Research Thread', updatedAt: Date.now(), turns: [], lastAnswer: null }
+    setSessions((prev) => [fresh, ...prev])
+    setActiveSessionId(id)
+    setQuestion('')
+  }
+
+  const removeSession = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setSessions((prev) => {
+      const filtered = prev.filter((s) => s.id !== id)
+      if (filtered.length === 0) {
+        const fallback: ChatSession = { id: `session-${Date.now()}`, title: 'New Research Thread', updatedAt: Date.now(), turns: [], lastAnswer: null }
+        setActiveSessionId(fallback.id)
+        return [fallback]
+      }
+      if (activeSessionId === id) {
+        setActiveSessionId(filtered[0].id)
+      }
+      return filtered
+    })
+  }
+
+  const appendToActiveSession = (userQ: string, ans: Answer, usedModel: string) => {
+    setSessions((prev) =>
+      prev.map((s) => {
+        if (s.id !== activeSession.id) return s
+        const newTurns: ChatTurn[] = [
+          ...s.turns,
+          { role: 'user', content: userQ, mode },
+          { role: 'assistant', content: ans.answer, model: usedModel, confidence: ans.confidence, mode },
+        ]
+        const newTitle = s.turns.length === 0 ? (userQ.length > 34 ? userQ.slice(0, 34) + '…' : userQ) : s.title
+        return { ...s, title: newTitle, updatedAt: Date.now(), turns: newTurns, lastAnswer: ans }
+      })
+    )
+  }
+
+  const clearActiveSessionTurns = () => {
+    setSessions((prev) =>
+      prev.map((s) => (s.id === activeSession.id ? { ...s, title: 'New Research Thread', turns: [], lastAnswer: null } : s))
+    )
+  }
 
   const apiHeaders = (): Record<string, string> => {
     const token = localStorage.getItem('graphmind_token')
@@ -73,9 +152,13 @@ function App() {
   }
 
   useEffect(() => {
+    void completeMagicLinkSignIn().then((magicUser) => {
+      if (magicUser?.email) setUser({ email: magicUser.email })
+    }).catch(() => null)
     const unsub = onAuthChange((fbUser) => {
-      if (fbUser?.email) {
-        setUser({ email: fbUser.email })
+      if (fbUser) {
+        const label = fbUser.email || fbUser.phoneNumber || (fbUser.isAnonymous ? `Guest (${fbUser.uid.slice(0, 5)})` : fbUser.displayName) || 'Authenticated User'
+        setUser({ email: label })
         void fbUser.getIdToken().then((t) => localStorage.setItem('graphmind_token', t))
       }
     })
@@ -117,18 +200,9 @@ function App() {
       })
       if (!response.ok) throw new Error((await response.json()).detail || 'Query failed')
       const data: Answer = await response.json()
-      setAnswer(data)
+      const usedModel = modelPreference === 'auto' ? (data.provider?.generation_model || 'GPT-OSS 120B / Gemini 3.8') : modelPreference
+      appendToActiveSession(currentQ, data, usedModel)
       if (mode === 'chat') {
-        setChatHistory((prev) => [
-          ...prev,
-          { role: 'user', content: currentQ },
-          {
-            role: 'assistant',
-            content: data.answer,
-            model: modelPreference === 'auto' ? (data.provider?.generation_model || 'GPT-OSS 120B / Gemini 3.8') : modelPreference,
-            confidence: data.confidence,
-          },
-        ])
         setQuestion('')
       }
       void syncQueryToFirebase({ question: currentQ, answer: data.answer, confidence: data.confidence, status: data.status, userEmail: user?.email })
@@ -140,14 +214,8 @@ function App() {
       setOffline(true)
       setHealth({ status: 'demo', chunks: 7, provider: { provider: 'offline-demo', active: true }, neo4j: false, agents: ['planner', 'retrieval', 'graph', 'verifier', 'generator'].map((name) => ({ name, mode: 'offline-demo' })) })
       setDocuments(DEMO_DOCUMENTS)
-      setAnswer({ ...DEMO_ANSWER, question: currentQ })
-      if (mode === 'chat') {
-        setChatHistory((prev) => [
-          ...prev,
-          { role: 'user', content: currentQ },
-          { role: 'assistant', content: DEMO_ANSWER.answer, model: 'offline-demo', confidence: DEMO_ANSWER.confidence },
-        ])
-      }
+      const fallbackAns = { ...DEMO_ANSWER, question: currentQ }
+      appendToActiveSession(currentQ, fallbackAns, 'offline-demo')
     }
     finally { setBusy(false) }
   }
@@ -195,8 +263,36 @@ function App() {
   }
 
   const authenticate = async (event: FormEvent) => {
-    event.preventDefault(); setError('')
+    event.preventDefault(); setError(''); setAuthNotice('')
     try {
+      if (authMode === 'reset') {
+        await resetPassword(email)
+        setAuthNotice(`Password reset email sent to ${email}. Check your inbox.`)
+        setAuthMode('login')
+        return
+      }
+      if (authMode === 'magic') {
+        await sendMagicLink(email)
+        setAuthNotice(`Magic sign-in link sent to ${email}! Click the link in your email to log in.`)
+        return
+      }
+      if (authMode === 'phone') {
+        if (!otpConfirm) {
+          const confirmation = await sendPhoneOtp(phone)
+          setOtpConfirm(confirmation)
+          setAuthNotice(`SMS OTP sent to ${phone}. Enter the 6-digit code below.`)
+          return
+        } else {
+          const cred = await otpConfirm.confirm(otpCode)
+          const token = await cred.user.getIdToken()
+          localStorage.setItem('graphmind_token', token)
+          setUser({ email: cred.user.phoneNumber || phone })
+          setOtpConfirm(null)
+          setAuthOpen(false)
+          return
+        }
+      }
+
       try {
         if (authMode === 'register') {
           const cred = await registerWithEmail(email, password, email.split('@')[0])
@@ -222,21 +318,34 @@ function App() {
       const response = await fetch(`${API}/api/auth/${authMode}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) })
       if (!response.ok) throw new Error((await response.json()).detail || 'Authentication failed')
       const payload = await response.json()
-      if (authMode === 'register') { setAuthMode('login'); setError('Account created. Sign in to continue.'); return }
+      if (authMode === 'register') { setAuthMode('login'); setAuthNotice('Account created! Sign in to continue.'); return }
       localStorage.setItem('graphmind_token', payload.access_token); setUser(payload.user); setAuthOpen(false)
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Authentication failed') }
+    } catch (reason) { setAuthNotice(reason instanceof Error ? reason.message : 'Authentication failed') }
   }
 
-  const signInWithGooglePopup = async () => {
-    setError('')
+  const signInWithOAuth = async (providerName: 'google' | 'github' | 'microsoft' | 'guest') => {
+    setError(''); setAuthNotice('')
     try {
-      const cred = await loginWithGoogle()
+      const cred = providerName === 'google'
+        ? await loginWithGoogle()
+        : providerName === 'github'
+        ? await loginWithGitHub()
+        : providerName === 'microsoft'
+        ? await loginWithMicrosoft()
+        : await loginAnonymously()
       const token = await cred.user.getIdToken()
       localStorage.setItem('graphmind_token', token)
-      setUser({ email: cred.user.email || cred.user.displayName || 'Google User' })
+      const label = cred.user.email || cred.user.displayName || (cred.user.isAnonymous ? `Guest (${cred.user.uid.slice(0, 5)})` : 'Authenticated User')
+      setUser({ email: label })
       setAuthOpen(false)
     } catch (reason: any) {
-      setError(reason instanceof Error ? reason.message : 'Google Sign-In failed')
+      if (providerName === 'guest') {
+        const guestEmail = `guest-${Math.random().toString(36).slice(2, 6)}@graphmind.ai`
+        setUser({ email: guestEmail })
+        setAuthOpen(false)
+        return
+      }
+      setAuthNotice(reason instanceof Error ? reason.message : `${providerName} Sign-In failed`)
     }
   }
 
@@ -277,16 +386,62 @@ function App() {
 
     {authOpen && (
       <div className="auth-backdrop" onClick={() => setAuthOpen(false)}>
-        <form className="auth-card" onSubmit={authenticate} onClick={(event) => event.stopPropagation()}>
+        <form className="auth-card" style={{ width: 'min(460px, 100%)' }} onSubmit={authenticate} onClick={(event) => event.stopPropagation()}>
           <button type="button" className="auth-close" onClick={() => setAuthOpen(false)}><X size={16} /></button>
-          <span className="kicker">FIREBASE WORKSPACE · GRAPHMIND-001</span>
-          <h2>{authMode === 'login' ? 'Welcome back.' : 'Create an account.'}</h2>
-          <p>Secured by Firebase Authentication (`graphmind-001`) & GraphMind session store.</p>
-          <input type="email" required placeholder="you@example.com" value={email} onChange={(event) => setEmail(event.target.value)} />
-          <input type="password" required minLength={10} placeholder="Password (10+ characters)" value={password} onChange={(event) => setPassword(event.target.value)} />
-          <button className="auth-submit">{authMode === 'login' ? 'Sign in' : 'Register'}</button>
-          <button type="button" className="auth-switch" onClick={signInWithGooglePopup}>Continue with Google</button>
-          <button type="button" className="auth-switch" onClick={() => setAuthMode(authMode === 'login' ? 'register' : 'login')}>{authMode === 'login' ? 'Need an account? Register' : 'Already registered? Sign in'}</button>
+          <span className="kicker">FIREBASE ENTERPRISE AUTH · GRAPHMIND-001</span>
+          <h2>
+            {authMode === 'login' ? 'Welcome back.' : authMode === 'register' ? 'Create an account.' : authMode === 'magic' ? 'Magic Email Link.' : authMode === 'phone' ? 'Phone SMS OTP.' : 'Reset Password.'}
+          </h2>
+          <p>Sign in with OAuth, Email/Password, Passwordless Magic Link, Phone OTP, or Guest Session.</p>
+
+          <div className="mode-pills" style={{ marginBottom: '4px' }}>
+            <button type="button" className={`mode-pill ${authMode === 'login' ? 'active' : ''}`} onClick={() => { setAuthMode('login'); setAuthNotice('') }}>Email</button>
+            <button type="button" className={`mode-pill ${authMode === 'register' ? 'active' : ''}`} onClick={() => { setAuthMode('register'); setAuthNotice('') }}>Register</button>
+            <button type="button" className={`mode-pill ${authMode === 'magic' ? 'active' : ''}`} onClick={() => { setAuthMode('magic'); setAuthNotice('') }}>Magic Link</button>
+            <button type="button" className={`mode-pill ${authMode === 'phone' ? 'active' : ''}`} onClick={() => { setAuthMode('phone'); setAuthNotice('') }}>Phone OTP</button>
+          </div>
+
+          <div className="provider-grid" style={{ marginBottom: '4px' }}>
+            <button type="button" className="auth-button" onClick={() => void signInWithOAuth('google')}>G · Google</button>
+            <button type="button" className="auth-button" onClick={() => void signInWithOAuth('github')}>⌥ · GitHub</button>
+            <button type="button" className="auth-button" onClick={() => void signInWithOAuth('microsoft')}>⊞ · Microsoft</button>
+            <button type="button" className="auth-button" onClick={() => void signInWithOAuth('guest')}>⚡ · Instant Guest</button>
+          </div>
+
+          {(authMode === 'login' || authMode === 'register' || authMode === 'magic' || authMode === 'reset') && (
+            <input type="email" required placeholder="you@example.com" value={email} onChange={(event) => setEmail(event.target.value)} />
+          )}
+
+          {(authMode === 'login' || authMode === 'register') && (
+            <input type="password" required minLength={10} placeholder="Password (10+ characters)" value={password} onChange={(event) => setPassword(event.target.value)} />
+          )}
+
+          {authMode === 'phone' && (
+            <>
+              <input type="tel" required placeholder="+91 9876543210 (with country code)" value={phone} onChange={(event) => setPhone(event.target.value)} />
+              {otpConfirm && (
+                <input type="text" required placeholder="Enter 6-digit SMS OTP code" value={otpCode} onChange={(event) => setOtpCode(event.target.value)} />
+              )}
+              <div id="recaptcha-container" />
+            </>
+          )}
+
+          {authNotice && <div className="notice" style={{ marginTop: 0 }}>{authNotice}</div>}
+
+          <button className="auth-submit">
+            {authMode === 'login' ? 'Sign in with Email' : authMode === 'register' ? 'Create Account' : authMode === 'magic' ? 'Send Magic Sign-In Link' : authMode === 'phone' ? (otpConfirm ? 'Verify OTP & Sign in' : 'Send SMS OTP') : 'Send Password Reset Email'}
+          </button>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px' }}>
+            <button type="button" className="auth-switch" onClick={() => { setAuthMode(authMode === 'login' ? 'register' : 'login'); setAuthNotice('') }}>
+              {authMode === 'login' ? 'Need an account? Register' : 'Back to Email Sign in'}
+            </button>
+            {authMode !== 'reset' && (
+              <button type="button" className="auth-switch" onClick={() => { setAuthMode('reset'); setAuthNotice('') }}>
+                Forgot password?
+              </button>
+            )}
+          </div>
         </form>
       </div>
     )}
@@ -414,6 +569,24 @@ function App() {
           </div>
         </div>
 
+        <div className="session-bar">
+          <button type="button" className="session-new" onClick={createNewSession}>+ New Thread</button>
+          {sessions.map((sess) => (
+            <div
+              key={sess.id}
+              className={`session-pill ${sess.id === activeSession.id ? 'active' : ''}`}
+              onClick={() => setActiveSessionId(sess.id)}
+            >
+              <span>{sess.title} ({Math.floor(sess.turns.length / 2)})</span>
+              {sessions.length > 1 && (
+                <button type="button" className="session-del" onClick={(e) => removeSession(sess.id, e)} title="Delete thread">
+                  <X size={11} />
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+
         <form className="query-box" onSubmit={ask}>
           {mode === 'chat' ? <MessageSquare size={20} /> : <Search size={20} />}
           <input
@@ -438,13 +611,13 @@ function App() {
         {mode === 'chat' && !busy && chatHistory.length > 0 && (
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '14px' }}>
-              <span className="muted">CONVERSATION THREAD ({chatHistory.length / 2} TURNS)</span>
+              <span className="muted">THREAD: {activeSession.title.toUpperCase()} ({Math.floor(chatHistory.length / 2)} TURNS)</span>
               <div style={{ display: 'flex', gap: '8px' }}>
                 <button type="button" className="meta-chip" onClick={() => setShowEvidenceInChat((v) => !v)}>
                   <BookOpen size={12} /> {showEvidenceInChat ? 'Hide Library Passages' : 'Show Library Passages'}
                 </button>
-                <button type="button" className="meta-chip" onClick={() => setChatHistory([])}>
-                  <Trash2 size={12} /> Clear Chat
+                <button type="button" className="meta-chip" onClick={clearActiveSessionTurns}>
+                  <Trash2 size={12} /> Clear Thread
                 </button>
               </div>
             </div>
@@ -468,28 +641,45 @@ function App() {
         )}
 
         {mode !== 'chat' && !busy && answer && (
-          <div className="answer-grid">
-            <article className="answer-card">
-              <div className="card-head">
-                <span className={`answer-status ${answer.status}`}>
-                  <CheckCircle2 size={14} /> {answer.status === 'grounded' ? 'GROUNDED ANSWER' : 'INSUFFICIENT EVIDENCE'}
-                </span>
-                <span className="confidence">Confidence {Math.round(answer.confidence * 100)}%</span>
-              </div>
-              <p className="answer-text">{answer.answer}</p>
-              <div className="answer-meta">
-                <span>Engine: {activeModelLabel}</span>
-                <span>Mode: {mode.toUpperCase()}</span>
-                <span>Question type: {answer.plan.question_type}</span>
-              </div>
-              {answer.graph_context.length > 0 && (
-                <div className="graph-context">
-                  <strong><GitBranch size={14} /> Graph context</strong>
-                  {answer.graph_context.map((item) => <span key={item}>{item}</span>)}
+          <div>
+            <div className="answer-grid">
+              <article className="answer-card">
+                <div className="card-head">
+                  <span className={`answer-status ${answer.status}`}>
+                    <CheckCircle2 size={14} /> {answer.status === 'grounded' ? 'GROUNDED ANSWER' : 'INSUFFICIENT EVIDENCE'}
+                  </span>
+                  <span className="confidence">Confidence {Math.round(answer.confidence * 100)}%</span>
                 </div>
-              )}
-            </article>
-            <EvidencePanel evidence={answer.evidence} />
+                <p className="answer-text">{answer.answer}</p>
+                <div className="answer-meta">
+                  <span>Engine: {activeModelLabel}</span>
+                  <span>Mode: {mode.toUpperCase()}</span>
+                  <span>Question type: {answer.plan.question_type}</span>
+                </div>
+                {answer.graph_context.length > 0 && (
+                  <div className="graph-context">
+                    <strong><GitBranch size={14} /> Graph context</strong>
+                    {answer.graph_context.map((item) => <span key={item}>{item}</span>)}
+                  </div>
+                )}
+              </article>
+              <EvidencePanel evidence={answer.evidence} />
+            </div>
+            {chatHistory.length > 2 && (
+              <div style={{ marginTop: '16px' }}>
+                <span className="muted">PREVIOUS QUESTIONS IN THIS THREAD ({Math.floor(chatHistory.length / 2)} TURNS)</span>
+                <div className="chat-thread">
+                  {chatHistory.slice(0, -2).map((turn, idx) => (
+                    <div key={idx} className={`chat-msg ${turn.role}`}>
+                      <div className="chat-msg-head">
+                        <span>{turn.role === 'user' ? 'YOU' : `GRAPHMIND (${turn.model || activeModelLabel})`}</span>
+                      </div>
+                      <div className="chat-msg-body">{turn.content}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
