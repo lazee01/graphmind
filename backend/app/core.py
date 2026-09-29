@@ -94,7 +94,24 @@ def split_sections(text: str) -> list[tuple[str, str]]:
     return sections or [("Document", text.strip())]
 
 
+def normalize_pdf_text(text: str) -> str:
+    """Repair PDFs where glyphs are extracted with spaces between every character (e.g. 'T h e p e r s o n')."""
+    tokens = text.split()
+    if len(tokens) > 20:
+        single_chars = sum(1 for t in tokens if len(t) == 1 and t.isalpha())
+        if single_chars / len(tokens) > 0.45:
+            # Collapse single-letter runs separated by single spaces while preserving word breaks
+            lines = []
+            for line in text.splitlines():
+                repaired = re.sub(r"(?<=\b[A-Za-z])\s(?=[A-Za-z]\b)", "", line)
+                repaired = re.sub(r"\s{2,}", " ", repaired)
+                lines.append(repaired)
+            return "\n".join(lines)
+    return text
+
+
 def chunk_text(document_id: str, document_name: str, text: str, page: int | None = None, size: int = 900, overlap: int = 140) -> list[Chunk]:
+    text = normalize_pdf_text(text)
     chunks: list[Chunk] = []
     for section, section_text in split_sections(text):
         words = section_text.split()
@@ -183,7 +200,10 @@ class GraphMindEngine:
         if not state.exists():
             return
         payload = json.loads(state.read_text(encoding="utf-8"))
-        chunks = [Chunk(**item) for item in payload.get("chunks", [])]
+        chunks = [
+            Chunk(**{**item, "text": normalize_pdf_text(item.get("text", ""))})
+            for item in payload.get("chunks", [])
+        ]
         self.index.add(chunks)
         self.documents = payload.get("documents", {})
         self.graph = GraphStore(**payload.get("graph", {}))
@@ -211,12 +231,31 @@ class GraphMindEngine:
         self._save()
         return metadata
 
+    def delete_document(self, document_id: str) -> bool:
+        if document_id not in self.documents:
+            return False
+        self.documents.pop(document_id, None)
+        remaining = [c for c in self.index.chunks if c.document_id != document_id]
+        self.index.chunks = []
+        if remaining:
+            self.index.add(remaining)
+        self._save()
+        return True
+
     def plan(self, question: str) -> dict:
         terms = tokenize(question)
         model_plan = self.models.plan(question)
         return {"question_type": "comparative" if "compare" in terms or "difference" in terms else "factoid", "sub_queries": model_plan["sub_queries"] if model_plan else [question], "entities": model_plan["entities"] if model_plan else terms[:8], "planner": "model" if model_plan else "local"}
 
-    def ask(self, question: str, limit: int = 6, document_id: str | None = None) -> dict:
+    def ask(
+        self,
+        question: str,
+        limit: int = 6,
+        document_id: str | None = None,
+        mode: str = "rag",
+        model_preference: str | None = None,
+        history: list[dict[str, str]] | None = None,
+    ) -> dict:
         workflow = self.orchestrator.run(question, limit, document_id=document_id)
         plan = workflow["plan"]
         evidence = workflow["evidence"]
@@ -227,26 +266,53 @@ class GraphMindEngine:
             for i, item in enumerate(evidence[:5])
         )
         graph_block = ", ".join(graph_context[:6]) if graph_context else "None"
+        history_block = ""
+        if history:
+            turns = [f"{turn.get('role', 'user').upper()}: {turn.get('content', '')}" for turn in history[-6:] if turn.get("content")]
+            if turns:
+                history_block = "Conversation History:\n" + "\n".join(turns) + "\n\n"
 
-        prompt = (
-            "You are GraphMind, an advanced AI scientific research assistant (like ChatGPT and Gemini) "
-            "augmented with Hybrid RAG and a Knowledge Graph.\n"
-            "Instructions:\n"
-            "1. Give a thorough, clear, well-structured, and helpful answer to the user's question.\n"
-            "2. Whenever the retrieved evidence below is relevant to the question, ground your claims in it and cite the source name inline (e.g., [demo-literature.txt]).\n"
-            "3. If the user asks a broader scientific, technical, or general question that goes beyond the retrieved snippets, answer it completely and accurately using your expert knowledge while connecting it to any relevant retrieved context.\n\n"
-            f"User Question: {question}\n\n"
-            f"Retrieved Literature Passages:\n{evidence_block or 'No passages retrieved.'}\n\n"
-            f"Knowledge Graph Context: {graph_block}\n\n"
-            "Comprehensive Answer:"
-        )
+        if mode == "chat":
+            prompt = (
+                "You are GraphMind AI Assistant (powered by GPT-OSS 120B, Gemini 3.8, and Qwen 3.8). "
+                "Respond naturally, thoroughly, and helpfully like ChatGPT and Gemini. "
+                "You can answer general questions, write code, explain math/science, brainstorm, and also reference the user's indexed library when helpful.\n\n"
+                f"{history_block}"
+                f"Optional Library Context:\n{evidence_block or 'None'}\n\n"
+                f"User Message: {question}\n\n"
+                "Assistant Response:"
+            )
+        elif mode == "rag":
+            prompt = (
+                "You are GraphMind, an evidence-first scientific literature QA engine.\n"
+                "Primary Focus: Ground your answer in the retrieved scientific passages and knowledge graph relationships below, citing source names inline (e.g. [demo-literature.txt]). "
+                "If the retrieved passages only partially cover the question, synthesize what the passages state first with inline citations, and then clearly provide expert scientific context.\n\n"
+                f"{history_block}"
+                f"User Question: {question}\n\n"
+                f"Retrieved Literature Passages:\n{evidence_block or 'No passages retrieved.'}\n\n"
+                f"Knowledge Graph Context: {graph_block}\n\n"
+                "Grounded Scientific Answer:"
+            )
+        else:
+            prompt = (
+                "You are GraphMind, a hybrid scientific research assistant combining Literature RAG, Knowledge Graphs, and frontier AI reasoning.\n"
+                "Instructions:\n"
+                "1. Give a thorough, clear, well-structured answer to the user's question.\n"
+                "2. Ground claims in the retrieved literature below with inline citations (e.g., [demo-literature.txt]) whenever relevant.\n"
+                "3. Seamlessly expand with complete scientific, mathematical, or technical depth using your expert knowledge.\n\n"
+                f"{history_block}"
+                f"User Question: {question}\n\n"
+                f"Retrieved Literature Passages:\n{evidence_block or 'No passages retrieved.'}\n\n"
+                f"Knowledge Graph Context: {graph_block}\n\n"
+                "Comprehensive Answer:"
+            )
 
-        llm_answer = self.models.generate(prompt)
+        llm_answer = self.models.generate(prompt, preferred_model=model_preference)
         if llm_answer:
             answer = llm_answer
-            confidence = min(0.98, max(0.78, 0.55 + sum(item["score"] for item in evidence[:3]) / 3))
+            confidence = min(0.98, max(0.82 if mode == "chat" else 0.78, 0.55 + sum(item["score"] for item in evidence[:3]) / 3))
             status = "grounded"
-            verification = {"supported": True, "mode": self.models.name}
+            verification = {"supported": True, "mode": model_preference or self.models.name}
         elif evidence and top_score > 0:
             answer = self._local_answer(question, evidence)
             confidence = min(0.95, 0.42 + sum(item["score"] for item in evidence[:3]) / 3)
@@ -258,9 +324,14 @@ class GraphMindEngine:
             status = "insufficient_evidence"
             verification = {"supported": False, "mode": "local"}
 
+        provider_status = self.models.status()
+        if model_preference and model_preference != "auto":
+            provider_status = {**provider_status, "selected_model": model_preference}
+
         return {
             "question": question,
             "document_id": document_id,
+            "mode": mode,
             "answer": answer,
             "confidence": round(confidence, 2),
             "status": status,
@@ -268,7 +339,7 @@ class GraphMindEngine:
             "evidence": evidence,
             "graph_context": graph_context,
             "verification": verification,
-            "provider": self.models.status(),
+            "provider": provider_status,
             "orchestration": {
                 "agents": self.orchestrator.status()["agents"],
                 "messages": workflow["messages"],
