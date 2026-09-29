@@ -1,13 +1,26 @@
+version: "3.9"
+
 services:
-  graphmind-api:
+  backend:
     build: ./backend
     ports:
       - "8000:8000"
-    environment:
-      GRAPHMIND_DATA_DIR: /app/data
-      GRAPHMIND_LLM_PROVIDER: ${GRAPHMIND_LLM_PROVIDER:-local}
     volumes:
-      - graphmind-data:/app/data
+      - ./backend/data:/app/data
+    env_file:
+      - ./backend/.env
+    restart: unless-stopped
+
+  neo4j:
+    image: neo4j:5
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      NEO4J_AUTH: neo4j/graphmind
+    volumes:
+      - neo4j_data:/data
+    restart: unless-stopped
 
 volumes:
-  graphmind-data:
+  neo4j_data:
