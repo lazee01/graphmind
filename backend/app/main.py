@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import secrets
 from io import BytesIO
 from pathlib import Path
 
@@ -20,7 +21,7 @@ cors_origins = [origin.strip() for origin in os.getenv("GRAPHMIND_CORS_ORIGINS",
 engine = GraphMindEngine(DATA_DIR)
 auth = AuthStore(DATA_DIR / "graphmind.sqlite3")
 require_auth = os.getenv("GRAPHMIND_REQUIRE_AUTH", "false").lower() == "true"
-app = FastAPI(title="GraphMind API", version="0.1.0", description="Provenance-aware scientific literature QA prototype")
+app = FastAPI(title="GraphMind API", version="0.1.0", description="Provenance-aware scientific literature QA platform")
 app.add_middleware(CORSMiddleware, allow_origins=cors_origins, allow_methods=["*"], allow_headers=["*"])
 
 
@@ -35,7 +36,36 @@ class AskRequest(BaseModel):
 
 class Credentials(BaseModel):
     email: str = Field(pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$", max_length=254)
-    password: str = Field(min_length=10, max_length=128)
+    password: str = Field(min_length=6, max_length=128)
+
+
+class OAuthRequest(BaseModel):
+    provider: str = Field(min_length=2, max_length=32)
+    email: str | None = Field(default=None, max_length=254)
+    name: str | None = Field(default=None, max_length=120)
+
+
+class MagicLinkRequest(BaseModel):
+    email: str = Field(pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$", max_length=254)
+    origin: str = Field(default="http://localhost:5173", max_length=254)
+
+
+class MagicVerifyRequest(BaseModel):
+    token: str = Field(min_length=6, max_length=128)
+
+
+class PhoneSendRequest(BaseModel):
+    phone: str = Field(min_length=5, max_length=32)
+
+
+class PhoneVerifyRequest(BaseModel):
+    phone: str = Field(min_length=5, max_length=32)
+    code: str = Field(min_length=4, max_length=12)
+
+
+class ResetPasswordRequest(BaseModel):
+    email: str = Field(pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$", max_length=254)
+    new_password: str | None = Field(default=None, max_length=128)
 
 
 def current_user(authorization: str | None = Header(default=None)) -> dict | None:
@@ -48,7 +78,14 @@ def current_user(authorization: str | None = Header(default=None)) -> dict | Non
 
 @app.get("/api/health")
 def health() -> dict:
-    return {"status": "ok", "documents": len(engine.documents), "chunks": len(engine.index.chunks), "neo4j": engine.graph.available, "provider": engine.models.status(), "agents": engine.orchestrator.status()["agents"]}
+    return {
+        "status": "ok",
+        "documents": len(engine.documents),
+        "chunks": len(engine.index.chunks),
+        "neo4j": engine.graph.available,
+        "provider": engine.models.status(),
+        "agents": engine.orchestrator.status()["agents"],
+    }
 
 
 @app.get("/")
@@ -58,7 +95,27 @@ def root() -> dict:
 
 @app.get("/api/config")
 def config() -> dict:
-    return {"models": engine.models.status(), "orchestration": engine.orchestrator.status(), "auth": {"required": require_auth, "sessions": "sqlite"}, "vector_store": "sentence-transformers-or-local-tfidf", "graph_store": "neo4j" if engine.graph.available else "local-fallback", "features": {"pdf_upload": True, "provenance": True, "hybrid_retrieval": True, "answer_generation": True, "planner": True, "verification": True, "entity_extraction": True, "ocr": True}}
+    return {
+        "models": engine.models.status(),
+        "orchestration": engine.orchestrator.status(),
+        "auth": {
+            "required": require_auth,
+            "sessions": "sqlite+firebase",
+            "methods": ["email", "register", "google", "github", "microsoft", "magic_link", "phone_otp", "password_reset", "guest"],
+        },
+        "vector_store": "sentence-transformers-or-local-tfidf",
+        "graph_store": "neo4j" if engine.graph.available else "local-fallback",
+        "features": {
+            "pdf_upload": True,
+            "provenance": True,
+            "hybrid_retrieval": True,
+            "answer_generation": True,
+            "planner": True,
+            "verification": True,
+            "entity_extraction": True,
+            "ocr": True,
+        },
+    }
 
 
 @app.post("/api/auth/register")
@@ -76,6 +133,55 @@ def login(credentials: Credentials) -> dict:
         return {"user": user, "access_token": token, "token_type": "bearer"}
     except ValueError as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
+
+
+@app.post("/api/auth/oauth")
+def oauth_login(payload: OAuthRequest) -> dict:
+    user, token = auth.oauth_login(payload.provider, payload.email, payload.name)
+    return {"user": user, "access_token": token, "token_type": "bearer"}
+
+
+@app.post("/api/auth/guest")
+def guest_login() -> dict:
+    guest_email = f"guest-{secrets.token_hex(2)}@graphmind.ai"
+    user, token = auth.oauth_login("guest", guest_email, "Guest Researcher")
+    return {"user": user, "access_token": token, "token_type": "bearer"}
+
+
+@app.post("/api/auth/magic-link")
+def magic_link(payload: MagicLinkRequest) -> dict:
+    return auth.create_magic_link(payload.email, payload.origin)
+
+
+@app.post("/api/auth/magic-verify")
+def magic_verify(payload: MagicVerifyRequest) -> dict:
+    try:
+        user, token = auth.verify_magic_link(payload.token)
+        return {"user": user, "access_token": token, "token_type": "bearer"}
+    except ValueError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+
+
+@app.post("/api/auth/phone-send")
+def phone_send(payload: PhoneSendRequest) -> dict:
+    try:
+        return auth.send_phone_otp(payload.phone)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/auth/phone-verify")
+def phone_verify(payload: PhoneVerifyRequest) -> dict:
+    try:
+        user, token = auth.verify_phone_otp(payload.phone, payload.code)
+        return {"user": user, "access_token": token, "token_type": "bearer"}
+    except ValueError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+
+
+@app.post("/api/auth/reset-password")
+def reset_password(payload: ResetPasswordRequest) -> dict:
+    return auth.reset_password(payload.email, payload.new_password)
 
 
 @app.post("/api/auth/logout")
