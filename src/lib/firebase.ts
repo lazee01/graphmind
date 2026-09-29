@@ -4,13 +4,23 @@ import {
   getAuth,
   GoogleAuthProvider,
   GithubAuthProvider,
+  TwitterAuthProvider,
+  OAuthProvider,
+  RecaptchaVerifier,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signInWithPopup,
+  signInAnonymously,
+  sendSignInLinkToEmail,
+  isSignInWithEmailLink,
+  signInWithEmailLink,
+  signInWithPhoneNumber,
   signOut,
   onAuthStateChanged,
   sendPasswordResetEmail,
+  sendEmailVerification,
   updateProfile,
+  type ConfirmationResult,
   type User,
 } from 'firebase/auth';
 import { getDatabase, ref, push, set } from 'firebase/database';
@@ -37,10 +47,16 @@ export const auth = getAuth(app);
 export const rtdb = getDatabase(app);
 export const db = getFirestore(app);
 
+// ── OAuth Providers ───────────────────────────────────────────────────────
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
-export const githubProvider = new GithubAuthProvider();
 
+export const githubProvider = new GithubAuthProvider();
+export const microsoftProvider = new OAuthProvider('microsoft.com');
+export const appleProvider = new OAuthProvider('apple.com');
+export const twitterProvider = new TwitterAuthProvider();
+
+// ── 1. Email & Password + Verification + Reset ────────────────────────────
 export const loginWithEmail = (email: string, password: string) =>
   signInWithEmailAndPassword(auth, email, password);
 
@@ -49,13 +65,57 @@ export const registerWithEmail = async (email: string, password: string, display
   if (displayName) {
     await updateProfile(cred.user, { displayName });
   }
+  await sendEmailVerification(cred.user).catch(() => null);
   return cred;
 };
 
+export const resetPassword = (email: string) => sendPasswordResetEmail(auth, email);
+
+// ── 2. Passwordless Magic Email Link ──────────────────────────────────────
+export const sendMagicLink = async (email: string) => {
+  const actionCodeSettings = {
+    url: typeof window !== 'undefined' ? window.location.origin : 'https://web-graphmind.web.app',
+    handleCodeInApp: true,
+  };
+  await sendSignInLinkToEmail(auth, email, actionCodeSettings);
+  if (typeof window !== 'undefined') {
+    window.localStorage.setItem('graphmind_magic_email', email);
+  }
+};
+
+export const completeMagicLinkSignIn = async () => {
+  if (typeof window === 'undefined' || !isSignInWithEmailLink(auth, window.location.href)) {
+    return null;
+  }
+  const email = window.localStorage.getItem('graphmind_magic_email') || window.prompt('Confirm your email address to complete sign-in:') || '';
+  if (!email) return null;
+  const result = await signInWithEmailLink(auth, email, window.location.href);
+  window.localStorage.removeItem('graphmind_magic_email');
+  return result.user;
+};
+
+// ── 3. OAuth Popup Sign-In (Google, GitHub, Microsoft, Apple, X) ──────────
 export const loginWithGoogle = () => signInWithPopup(auth, googleProvider);
 export const loginWithGitHub = () => signInWithPopup(auth, githubProvider);
+export const loginWithMicrosoft = () => signInWithPopup(auth, microsoftProvider);
+export const loginWithApple = () => signInWithPopup(auth, appleProvider);
+export const loginWithTwitter = () => signInWithPopup(auth, twitterProvider);
+
+// ── 4. Phone / SMS OTP Sign-In ────────────────────────────────────────────
+let recaptchaVerifier: RecaptchaVerifier | null = null;
+
+export const sendPhoneOtp = async (phoneNumber: string, containerId = 'recaptcha-container'): Promise<ConfirmationResult> => {
+  if (!recaptchaVerifier) {
+    recaptchaVerifier = new RecaptchaVerifier(auth, containerId, { size: 'invisible' });
+  }
+  return signInWithPhoneNumber(auth, phoneNumber, recaptchaVerifier);
+};
+
+// ── 5. Anonymous / Instant Guest Trial ────────────────────────────────────
+export const loginAnonymously = () => signInAnonymously(auth);
+
+// ── Session Management ────────────────────────────────────────────────────
 export const logout = () => signOut(auth);
-export const resetPassword = (email: string) => sendPasswordResetEmail(auth, email);
 export const onAuthChange = (cb: (user: User | null) => void) =>
   onAuthStateChanged(auth, cb);
 
@@ -80,7 +140,7 @@ export async function syncQueryToFirebase(payload: {
     const historyRef = push(ref(rtdb, `workspaces/${uid}/queries`));
     await set(historyRef, entry);
   } catch {
-    // Realtime DB optional / non-blocking
+    // Realtime DB non-blocking
   }
   try {
     await addDoc(collection(db, 'queries'), {
@@ -88,8 +148,8 @@ export async function syncQueryToFirebase(payload: {
       createdAt: serverTimestamp(),
     });
   } catch {
-    // Firestore optional / non-blocking
+    // Firestore non-blocking
   }
 }
 
-export type { User };
+export type { User, ConfirmationResult };
