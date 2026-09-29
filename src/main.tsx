@@ -6,6 +6,9 @@ import {
   FileText, GitBranch, LoaderCircle, Search, Settings2, ShieldCheck, Sparkles,
   Upload, X,
 } from 'lucide-react'
+import {
+  loginWithEmail, registerWithEmail, loginWithGoogle, logout as firebaseLogout, onAuthChange,
+} from './lib/firebase'
 import './styles.css'
 
 type Evidence = { id: string; document_name: string; text: string; page: number | null; section: string; score: number; citation: string }
@@ -46,6 +49,16 @@ function App() {
     const token = localStorage.getItem('graphmind_token')
     return token ? { Authorization: `Bearer ${token}` } : {}
   }
+
+  useEffect(() => {
+    const unsub = onAuthChange((fbUser) => {
+      if (fbUser?.email) {
+        setUser({ email: fbUser.email })
+        void fbUser.getIdToken().then((t) => localStorage.setItem('graphmind_token', t))
+      }
+    })
+    return () => unsub()
+  }, [])
 
   const loadWorkspace = async () => {
     try {
@@ -109,6 +122,30 @@ function App() {
   const authenticate = async (event: FormEvent) => {
     event.preventDefault(); setError('')
     try {
+      // Try Firebase Auth first (graphmind-001)
+      try {
+        if (authMode === 'register') {
+          const cred = await registerWithEmail(email, password, email.split('@')[0])
+          const token = await cred.user.getIdToken()
+          localStorage.setItem('graphmind_token', token)
+          setUser({ email: cred.user.email || email })
+          setAuthOpen(false)
+          return
+        } else {
+          const cred = await loginWithEmail(email, password)
+          const token = await cred.user.getIdToken()
+          localStorage.setItem('graphmind_token', token)
+          setUser({ email: cred.user.email || email })
+          setAuthOpen(false)
+          return
+        }
+      } catch (fbErr: any) {
+        // Fallback to backend SQLite auth if Firebase Email/Password provider isn't enabled yet
+        if (fbErr?.code && !String(fbErr.code).includes('operation-not-allowed') && !String(fbErr.code).includes('configuration-not-found')) {
+          throw new Error(fbErr.message || 'Firebase authentication failed')
+        }
+      }
+
       const response = await fetch(`${API}/api/auth/${authMode}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) })
       if (!response.ok) throw new Error((await response.json()).detail || 'Authentication failed')
       const payload = await response.json()
@@ -117,13 +154,36 @@ function App() {
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Authentication failed') }
   }
 
+  const signInWithGooglePopup = async () => {
+    setError('')
+    try {
+      const cred = await loginWithGoogle()
+      const token = await cred.user.getIdToken()
+      localStorage.setItem('graphmind_token', token)
+      setUser({ email: cred.user.email || cred.user.displayName || 'Google User' })
+      setAuthOpen(false)
+    } catch (reason: any) {
+      setError(reason instanceof Error ? reason.message : 'Google Sign-In failed')
+    }
+  }
+
+  const handleUserClick = async () => {
+    if (user) {
+      await firebaseLogout().catch(() => null)
+      localStorage.removeItem('graphmind_token')
+      setUser(null)
+    } else {
+      setAuthOpen(true)
+    }
+  }
+
   return <div className="app-shell">
     <header className="topbar">
       <a className="logo" href="#top"><span className="logo-mark"><GitBranch size={18} /></span><span>graph<span>mind</span></span></a>
       <nav><a className="active" href="#ask">Ask literature</a><a href="#library">Library</a><a href="#method">How it works</a></nav>
-      <div className="header-actions">{!offline && <button className="auth-button" onClick={() => setAuthOpen(true)}>{user ? user.email : 'Sign in'}</button>}<div className={`top-status ${offline ? 'demo-status' : ''}`}><CircleDot size={13} /> {offline ? 'OFFLINE DEMO MODE' : health?.status === 'ok' ? 'API ENGINE READY' : 'CONNECTING'} <Settings2 size={15} /></div></div>
+      <div className="header-actions"><button className="auth-button" onClick={handleUserClick} title={user ? 'Click to sign out' : 'Sign in with Firebase'}>{user ? `${user.email} · Sign out` : 'Sign in'}</button><div className={`top-status ${offline ? 'demo-status' : ''}`}><CircleDot size={13} /> {offline ? 'OFFLINE DEMO MODE' : health?.status === 'ok' ? 'API ENGINE READY' : 'CONNECTING'} <Settings2 size={15} /></div></div>
     </header>
-    {authOpen && <div className="auth-backdrop" onClick={() => setAuthOpen(false)}><form className="auth-card" onSubmit={authenticate} onClick={(event) => event.stopPropagation()}><button type="button" className="auth-close" onClick={() => setAuthOpen(false)}><X size={16} /></button><span className="kicker">SECURE WORKSPACE</span><h2>{authMode === 'login' ? 'Welcome back.' : 'Create an account.'}</h2><p>Sessions are stored securely by the configured backend. Offline demo mode never sends credentials.</p><input type="email" required placeholder="you@example.com" value={email} onChange={(event) => setEmail(event.target.value)} /><input type="password" required minLength={10} placeholder="Password (10+ characters)" value={password} onChange={(event) => setPassword(event.target.value)} /><button className="auth-submit">{authMode === 'login' ? 'Sign in' : 'Register'}</button><button type="button" className="auth-switch" onClick={() => setAuthMode(authMode === 'login' ? 'register' : 'login')}>{authMode === 'login' ? 'Need an account? Register' : 'Already registered? Sign in'}</button></form></div>}
+    {authOpen && <div className="auth-backdrop" onClick={() => setAuthOpen(false)}><form className="auth-card" onSubmit={authenticate} onClick={(event) => event.stopPropagation()}><button type="button" className="auth-close" onClick={() => setAuthOpen(false)}><X size={16} /></button><span className="kicker">FIREBASE WORKSPACE · GRAPHMIND-001</span><h2>{authMode === 'login' ? 'Welcome back.' : 'Create an account.'}</h2><p>Secured by Firebase Authentication (`graphmind-001`) & GraphMind session store.</p><input type="email" required placeholder="you@example.com" value={email} onChange={(event) => setEmail(event.target.value)} /><input type="password" required minLength={10} placeholder="Password (10+ characters)" value={password} onChange={(event) => setPassword(event.target.value)} /><button className="auth-submit">{authMode === 'login' ? 'Sign in' : 'Register'}</button><button type="button" className="auth-switch" onClick={signInWithGooglePopup}>Continue with Google</button><button type="button" className="auth-switch" onClick={() => setAuthMode(authMode === 'login' ? 'register' : 'login')}>{authMode === 'login' ? 'Need an account? Register' : 'Already registered? Sign in'}</button></form></div>}
     <main id="top">
       <section className="hero">
         <div className="hero-copy"><div className="eyebrow"><Sparkles size={14} /> SCIENTIFIC LITERATURE QA</div><h1>Answers that<br /><em>show their work.</em></h1><p>GraphMind turns dense papers into grounded answers with provenance, hybrid retrieval, and an auditable evidence trail.</p><div className="hero-chips"><span><ShieldCheck size={14} /> Evidence-first</span><span><GitBranch size={14} /> Graph-aware</span><span><CircleDot size={14} /> Runs locally</span></div></div>
