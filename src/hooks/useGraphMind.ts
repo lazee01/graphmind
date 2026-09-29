@@ -163,7 +163,7 @@ export function useGraphMind(apiUrl: string = DEFAULT_API_URL) {
   }, [fetchDocuments]);
 
   const uploadDocument = useCallback(
-    async (file: File) => {
+    async (file: File): Promise<boolean> => {
       if (demoMode) {
         const fakeDoc: Document = {
           id: `demo-upload-${Date.now()}`,
@@ -174,7 +174,7 @@ export function useGraphMind(apiUrl: string = DEFAULT_API_URL) {
           demo: true,
         };
         setDocuments(prev => [...prev, fakeDoc]);
-        return;
+        return true;
       }
       setLoading(true);
       setError(null);
@@ -196,9 +196,10 @@ export function useGraphMind(apiUrl: string = DEFAULT_API_URL) {
           demo: d.demo,
         };
         setDocuments(prev => [...prev, newDoc]);
+        return true;
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Upload failed');
-        throw e;
+        return false;
       } finally {
         setLoading(false);
       }
