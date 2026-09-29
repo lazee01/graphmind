@@ -16,27 +16,13 @@ from .core import GraphMindEngine
 from .auth import AuthStore
 
 DATA_DIR = Path(os.getenv("GRAPHMIND_DATA_DIR", "./data"))
-cors_origins = [o.strip() for o in os.getenv("GRAPHMIND_CORS_ORIGINS", "*").split(",") if o.strip()]
-require_auth = os.getenv("GRAPHMIND_REQUIRE_AUTH", "false").lower() == "true"
-
+cors_origins = [origin.strip() for origin in os.getenv("GRAPHMIND_CORS_ORIGINS", "*").split(",") if origin.strip()]
 engine = GraphMindEngine(DATA_DIR)
 auth = AuthStore(DATA_DIR / "graphmind.sqlite3")
+require_auth = os.getenv("GRAPHMIND_REQUIRE_AUTH", "false").lower() == "true"
+app = FastAPI(title="GraphMind API", version="0.1.0", description="Provenance-aware scientific literature QA prototype")
+app.add_middleware(CORSMiddleware, allow_origins=cors_origins, allow_methods=["*"], allow_headers=["*"])
 
-app = FastAPI(
-    title="GraphMind API",
-    version="0.2.0",
-    description="Evidence-first scientific literature QA — hybrid RAG + knowledge graph + multi-agent",
-)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=cors_origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-
-# ── Schemas ───────────────────────────────────────────────────────────────────
 
 class AskRequest(BaseModel):
     question: str = Field(min_length=3, max_length=2000)
@@ -45,11 +31,9 @@ class AskRequest(BaseModel):
 
 
 class Credentials(BaseModel):
-    email: str = Field(pattern=r"^[^\@\s]+@[^\@\s]+\.[^\@\s]+$", max_length=254)
+    email: str = Field(pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$", max_length=254)
     password: str = Field(min_length=10, max_length=128)
 
-
-# ── Auth dependency ───────────────────────────────────────────────────────────
 
 def current_user(authorization: str | None = Header(default=None)) -> dict | None:
     token = authorization.removeprefix("Bearer ").strip() if authorization else None
@@ -59,105 +43,88 @@ def current_user(authorization: str | None = Header(default=None)) -> dict | Non
     return user
 
 
-# ── Health / Config ───────────────────────────────────────────────────────────
+@app.get("/api/health")
+def health() -> dict:
+    return {"status": "ok", "documents": len(engine.documents), "chunks": len(engine.index.chunks), "neo4j": engine.graph.available, "provider": engine.models.status(), "agents": engine.orchestrator.status()["agents"]}
+
 
 @app.get("/")
 def root() -> dict:
-    return {"service": "graphmind-api", "version": "0.2.0", "health": "/api/health"}
-
-
-@app.get("/api/health")
-def health() -> dict:
-    return {
-        "status": "ok",
-        "documents": len(engine.documents),
-        "chunks": len(engine.index.chunks),
-        "neo4j": engine.graph.available,
-        "provider": engine.models.status(),
-        "agents": engine.orchestrator.status()["agents"],
-    }
+    return {"service": "graphmind-api", "health": "/api/health"}
 
 
 @app.get("/api/config")
 def config() -> dict:
-    return {
-        "provider": engine.models.status(),
-        "require_auth": require_auth,
-        "data_dir": str(DATA_DIR),
-    }
+    return {"models": engine.models.status(), "orchestration": engine.orchestrator.status(), "auth": {"required": require_auth, "sessions": "sqlite"}, "vector_store": "sentence-transformers-or-local-tfidf", "graph_store": "neo4j" if engine.graph.available else "local-fallback", "features": {"pdf_upload": True, "provenance": True, "hybrid_retrieval": True, "answer_generation": True, "planner": True, "verification": True, "entity_extraction": True, "ocr": True}}
 
 
-# ── Documents ─────────────────────────────────────────────────────────────────
-
-@app.get("/api/documents")
-def list_documents(_user: dict | None = Depends(current_user)) -> list:
-    return list(engine.documents.values())
-
-
-@app.post("/api/documents")
-async def upload_document(
-    file: UploadFile = File(...),
-    _user: dict | None = Depends(current_user),
-) -> dict:
-    if file.size and file.size > 50 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="File too large (max 50 MB)")
-    content = await file.read()
-    result = engine.ingest(file.filename or "upload", content, file.content_type or "")
-    if "error" in result:
-        raise HTTPException(status_code=422, detail=result["error"])
-    return result
-
-
-@app.delete("/api/documents/{document_id}")
-def delete_document(
-    document_id: str,
-    _user: dict | None = Depends(current_user),
-) -> dict:
-    if not engine.delete_document(document_id):
-        raise HTTPException(status_code=404, detail="Document not found")
-    return {"deleted": document_id}
-
-
-# ── Query / Ask ───────────────────────────────────────────────────────────────
-
-@app.post("/api/ask")
-def ask(
-    body: AskRequest,
-    _user: dict | None = Depends(current_user),
-) -> dict:
-    if not engine.index.chunks:
-        raise HTTPException(status_code=503, detail="No documents indexed yet")
-    return engine.ask(body.question, limit=body.limit, document_id=body.document_id)
-
-
-# ── Auth Routes ───────────────────────────────────────────────────────────────
-
-@app.post("/api/auth/register", status_code=201)
-def register(creds: Credentials) -> dict:
-    user = auth.register(creds.email, creds.password)
-    if not user:
-        raise HTTPException(status_code=409, detail="Email already registered")
-    return user
+@app.post("/api/auth/register")
+def register(credentials: Credentials) -> dict:
+    try:
+        return auth.register(credentials.email, credentials.password)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.post("/api/auth/login")
-def login(creds: Credentials) -> dict:
-    token = auth.login(creds.email, creds.password)
-    if not token:
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-    return {"token": token}
+def login(credentials: Credentials) -> dict:
+    try:
+        user, token = auth.login(credentials.email, credentials.password)
+        return {"user": user, "access_token": token, "token_type": "bearer"}
+    except ValueError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
 
 
 @app.post("/api/auth/logout")
 def logout(authorization: str | None = Header(default=None)) -> dict:
-    token = authorization.removeprefix("Bearer ").strip() if authorization else None
-    if token:
-        auth.logout(token)
-    return {"status": "logged out"}
+    auth.logout(authorization.removeprefix("Bearer ").strip() if authorization else None)
+    return {"ok": True}
 
 
 @app.get("/api/auth/me")
 def me(user: dict | None = Depends(current_user)) -> dict:
-    if not user:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    return user
+    return {"user": user}
+
+
+@app.get("/api/documents")
+def documents(_: dict | None = Depends(current_user)) -> list[dict]:
+    return list(engine.documents.values())
+
+
+@app.post("/api/documents")
+async def upload_document(file: UploadFile = File(...), _: dict | None = Depends(current_user)) -> dict:
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="A filename is required")
+    raw = await file.read()
+    if len(raw) > 25 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Maximum upload size is 25 MB")
+    if file.filename.lower().endswith(".pdf"):
+        try:
+            try:
+                import fitz
+                page_text = [(index + 1, page.get_text()) for index, page in enumerate(fitz.open(stream=raw, filetype="pdf"))]
+            except ImportError:
+                from pypdf import PdfReader
+                pages = PdfReader(BytesIO(raw)).pages
+                page_text = [(index + 1, page.extract_text() or "") for index, page in enumerate(pages)]
+            if not any(text.strip() for _, text in page_text):
+                raise ValueError("OCR required")
+        except Exception as exc:
+            try:
+                from pdf2image import convert_from_bytes
+                import pytesseract
+                page_text = [(index + 1, pytesseract.image_to_string(image)) for index, image in enumerate(convert_from_bytes(raw, dpi=180))]
+            except ImportError:
+                raise HTTPException(status_code=422, detail=f"PDF has no extractable text; install optional OCR dependencies (pdf2image, pytesseract, Tesseract). Details: {exc}") from exc
+    else:
+        page_text = [(None, raw.decode("utf-8", errors="replace"))]
+    if not any(text.strip() for _, text in page_text):
+        raise HTTPException(status_code=422, detail="The document contains no extractable text")
+    return engine.add_document_pages(file.filename, page_text)
+
+
+@app.post("/api/ask")
+def ask(request: AskRequest, _: dict | None = Depends(current_user)) -> dict:
+    if request.document_id and request.document_id not in engine.documents:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return engine.ask(request.question, request.limit, request.document_id)
