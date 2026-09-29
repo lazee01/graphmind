@@ -14,8 +14,8 @@ class ModelProvider:
         self.name = os.getenv("GRAPHMIND_MODEL_PROVIDER", "local").lower()
         self.slots = [slot.strip().lower() for slot in os.getenv("GRAPHMIND_PROVIDER_SLOTS", self.name).split(",") if slot.strip()][:5] or ["local"]
         self.embedding_model = os.getenv("GRAPHMIND_EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
-        self.generation_model = os.getenv("GRAPHMIND_GENERATION_MODEL", "llama-3.3-70b-versatile")
-        self.gemini_model = os.getenv("GRAPHMIND_GEMINI_MODEL", "gemini-2.0-flash")
+        self.generation_model = os.getenv("GRAPHMIND_GENERATION_MODEL", "openai/gpt-oss-120b")
+        self.gemini_model = os.getenv("GRAPHMIND_GEMINI_MODEL", "gemini-3.8-flash")
         self._embedder: Any = None
         self._generator: Any = None
 
@@ -47,6 +47,7 @@ class ModelProvider:
             "provider": self.name,
             "embedding_model": self.embedding_model if configured else None,
             "generation_model": self.generation_model if configured else None,
+            "gemini_model": self.gemini_model if self._api_key("gemini") else None,
             "active": bool(self._embedder or self._generator or has_key) if configured else True,
             "fallback": "tfidf-and-extractive-local",
             "slots": [{"name": slot, "configured": slot == "local" or bool(self._api_key(slot))} for slot in self.slots],
@@ -81,61 +82,57 @@ class ModelProvider:
         key = self._api_key(provider)
         if not url or not key:
             return None
-        body = {
-            "model": self.generation_model,
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.2,
-            "max_tokens": 900,
-        }
+        candidate_models = [self.generation_model]
+        if provider == "groq":
+            for fallback_model in ("openai/gpt-oss-120b", "qwen/qwen3.8-27b", "openai/gpt-oss-20b"):
+                if fallback_model not in candidate_models:
+                    candidate_models.append(fallback_model)
+
         headers = {
             "Authorization": f"Bearer {key}",
             "Content-Type": "application/json",
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) GraphMind/1.0",
         }
-        try:
-            import httpx
-            resp = httpx.post(url, json=body, headers=headers, timeout=30.0)
-            if resp.status_code == 200:
-                payload = resp.json()
-                return str(payload["choices"][0]["message"]["content"]).strip()
-        except Exception:
-            pass
-        try:
-            request = Request(url, data=json.dumps(body).encode(), headers=headers)
-            with urlopen(request, timeout=25) as response:
-                payload = json.loads(response.read())
-            return str(payload["choices"][0]["message"]["content"]).strip()
-        except (KeyError, OSError, TimeoutError, json.JSONDecodeError):
-            return None
+        for model_name in candidate_models:
+            body = {
+                "model": model_name,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.2,
+                "max_tokens": 900,
+            }
+            try:
+                import httpx
+                resp = httpx.post(url, json=body, headers=headers, timeout=30.0)
+                if resp.status_code == 200:
+                    payload = resp.json()
+                    content = str(payload["choices"][0]["message"]["content"]).strip()
+                    if content:
+                        return content
+            except Exception:
+                pass
+        return None
 
     def _call_gemini(self, prompt: str) -> str | None:
-        url = self._api_url("gemini")
         key = self._api_key("gemini")
-        if not url or not key:
+        if not key:
             return None
-        body = {
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {"temperature": 0.2, "maxOutputTokens": 900},
-        }
-        try:
-            import httpx
-            resp = httpx.post(f"{url}?key={key}", json=body, timeout=30.0)
-            if resp.status_code == 200:
-                payload = resp.json()
-                return str(payload["candidates"][0]["content"]["parts"][0]["text"]).strip()
-        except Exception:
-            pass
-        try:
-            request = Request(
-                f"{url}?key={key}",
-                data=json.dumps(body).encode(),
-                headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"},
-            )
-            with urlopen(request, timeout=25) as response:
-                payload = json.loads(response.read())
-            return str(payload["candidates"][0]["content"]["parts"][0]["text"]).strip()
-        except (KeyError, IndexError, OSError, TimeoutError, json.JSONDecodeError):
-            return None
+        for gem_model in (self.gemini_model, "gemini-3.8-flash", "gemini-3.8-flash-lite"):
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{gem_model}:generateContent?key={key}"
+            body = {
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {"temperature": 0.2, "maxOutputTokens": 900},
+            }
+            try:
+                import httpx
+                resp = httpx.post(url, json=body, timeout=30.0)
+                if resp.status_code == 200:
+                    payload = resp.json()
+                    content = str(payload["candidates"][0]["content"]["parts"][0]["text"]).strip()
+                    if content:
+                        return content
+            except Exception:
+                pass
+        return None
 
     def generate(self, prompt: str) -> str | None:
         if self.name == "local":
@@ -166,19 +163,20 @@ class ModelProvider:
     def plan(self, question: str) -> dict[str, Any] | None:
         q_type = "comparative" if ("compare" in question.lower() or "difference" in question.lower()) else "factoid"
         result = self.generate(
-            f'Return ONLY valid JSON with keys "question_type", "sub_queries" (list of strings), and "entities" (list of strings) for this literature question: {question}'
+            f'Return ONLY valid JSON with keys "question_type", "sub_queries" (list of 2-3 search strings), and "entities" (list of key scientific terms) for this question: {question}'
         )
         if not result:
             return None
         try:
             cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", result.strip())
-            parsed = json.loads(cleaned)
+            m = re.search(r"\{.*\}", cleaned, re.DOTALL)
+            parsed = json.loads(m.group(0) if m else cleaned)
             return {
                 "question_type": parsed.get("question_type", q_type),
                 "sub_queries": parsed.get("sub_queries", [question]),
                 "entities": parsed.get("entities", []),
             }
-        except json.JSONDecodeError:
+        except Exception:
             return None
 
     def verify(self, answer: str, evidence: list[dict]) -> dict[str, Any] | None:
@@ -191,8 +189,9 @@ class ModelProvider:
             return None
         try:
             cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", result.strip())
-            return json.loads(cleaned)
-        except json.JSONDecodeError:
+            m = re.search(r"\{.*\}", cleaned, re.DOTALL)
+            return json.loads(m.group(0) if m else cleaned)
+        except Exception:
             return None
 
     def entities(self, text: str) -> list[str] | None:
