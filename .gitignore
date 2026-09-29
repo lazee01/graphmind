@@ -1,8 +1,55 @@
-node_modules
-dist
-.DS_Store
-backend/.venv
-backend/data
-backend/.env
-__pycache__
+# Python
+__pycache__/
 *.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Data & secrets
+backend/data/
+backend/.env
+.env
+*.sqlite3
+*.sqlite
+
+# FAISS index
+*.index
+*.faiss
+
+# ML model caches
+*.bin
+*.safetensors
+models/
+.cache/
+
+# Node / frontend
+node_modules/
+dist/
+.vite/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Docker
+.docker/
