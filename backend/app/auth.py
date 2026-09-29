@@ -3,10 +3,46 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import os
 import secrets
+import smtplib
 import sqlite3
 import time
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from pathlib import Path
+
+
+def _send_otp_email(to_address: str, otp_code: str, context: str = "phone verification") -> bool:
+    """Send real OTP code to the user's email via Gmail SMTP. Returns True on success."""
+    smtp_from = os.getenv("OTP_SMTP_FROM", "")
+    smtp_password = os.getenv("OTP_SMTP_PASSWORD", "")
+    if not smtp_from or not smtp_password:
+        return False
+    try:
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = f"Your GraphMind OTP: {otp_code}"
+        msg["From"] = f"GraphMind AI <{smtp_from}>"
+        msg["To"] = to_address
+        html = f"""
+        <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px;background:#0a0e1a;color:#e2e8f0;border-radius:12px">
+          <h2 style="color:#06b6d4;margin:0 0 8px">GraphMind AI</h2>
+          <p style="color:#94a3b8;margin:0 0 24px;font-size:13px">Enterprise Scientific Intelligence Platform</p>
+          <div style="background:#1e293b;border:1px solid #1e3a5f;border-radius:8px;padding:24px;text-align:center;margin-bottom:24px">
+            <p style="color:#94a3b8;margin:0 0 12px;font-size:14px">Your one-time verification code for {context}</p>
+            <span style="font-size:40px;font-weight:bold;letter-spacing:12px;color:#06b6d4">{otp_code}</span>
+            <p style="color:#64748b;margin:16px 0 0;font-size:12px">⏱ Expires in 10 minutes &nbsp;·&nbsp; Do not share this code</p>
+          </div>
+          <p style="color:#475569;font-size:12px;margin:0">If you did not request this code, you can safely ignore this email.</p>
+        </div>
+        """
+        msg.attach(MIMEText(html, "html"))
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(smtp_from, smtp_password)
+            server.sendmail(smtp_from, to_address, msg.as_string())
+        return True
+    except Exception:
+        return False
 
 
 def _hash(password: str, salt: bytes | None = None) -> str:
@@ -151,7 +187,7 @@ class AuthStore:
         user = self._get_or_create_user(row[0])
         return self._issue_session(user["id"], user["email"])
 
-    def send_phone_otp(self, phone: str) -> dict:
+    def send_phone_otp(self, phone: str, email: str | None = None) -> dict:
         clean_phone = phone.strip()
         if not clean_phone:
             raise ValueError("Phone number is required")
@@ -161,7 +197,19 @@ class AuthStore:
                 "INSERT OR REPLACE INTO otp_codes VALUES (?, ?, ?)",
                 (clean_phone, code, time.time() + 60 * 10),
             )
-        return {"ok": True, "phone": clean_phone, "demo_otp": code}
+        # Try to send real OTP email to user's email inbox (arrives on phone/PC/tablet)
+        email_sent = False
+        delivery_target = email or clean_phone
+        if email and "@" in email:
+            email_sent = _send_otp_email(email, code, context=f"phone number {clean_phone}")
+        return {
+            "ok": True,
+            "phone": clean_phone,
+            "email_sent": email_sent,
+            "delivery": "email" if email_sent else "on-screen",
+            "demo_otp": code,
+            "message": f"OTP sent to {email}" if email_sent else f"OTP generated: {code}",
+        }
 
     def verify_phone_otp(self, phone: str, code: str) -> tuple[dict, str]:
         clean_phone = phone.strip()
