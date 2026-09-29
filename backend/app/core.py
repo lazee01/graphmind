@@ -1,3 +1,9 @@
+"""GraphMind core engine — ingestion, indexing, retrieval, and orchestration.
+
+Local-first design: zero ML dependencies required. Activate optional providers
+via the GRAPHMIND_MODEL_PROVIDER environment variable.
+"""
+
 from __future__ import annotations
 
 import json
@@ -9,12 +15,14 @@ from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Iterable
+
 from .providers import ModelProvider
 from .agents import GraphMindOrchestrator
 
 WORD_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]{1,}")
 SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
 
+# ── Data Models ───────────────────────────────────────────────────────────────
 
 @dataclass
 class Chunk:
@@ -31,234 +39,474 @@ class Chunk:
         location = f"p. {self.page}" if self.page else self.section or "document"
         return f"{self.document_name} ({location})"
 
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Chunk":
+        return cls(**d)
+
+
+# ── TF-IDF Embedder ───────────────────────────────────────────────────────────
 
 def tokenize(text: str) -> list[str]:
-    return [word.lower() for word in WORD_RE.findall(text)]
+    return [w.lower() for w in WORD_RE.findall(text)]
 
 
 class TfidfEmbedder:
-    """Small dependency-free embedding fallback suitable for a local prototype."""
+    """Dependency-free TF-IDF sparse embedding for local prototype mode."""
 
     def fit_transform(self, texts: Iterable[str]) -> list[dict[str, float]]:
-        tokenized = [tokenize(text) for text in texts]
-        document_frequency: Counter[str] = Counter()
+        tokenized = [tokenize(t) for t in texts]
+        df: Counter[str] = Counter()
         for words in tokenized:
-            document_frequency.update(set(words))
-        count = max(len(tokenized), 1)
+            df.update(set(words))
+        N = max(len(tokenized), 1)
         vectors: list[dict[str, float]] = []
         for words in tokenized:
-            counts = Counter(words)
-            vector = {
-                word: (1 + math.log(frequency)) * math.log((count + 1) / (document_frequency[word] + 1))
-                for word, frequency in counts.items()
+            tf = Counter(words)
+            vec = {
+                w: (1 + math.log(c)) * math.log((N + 1) / (df[w] + 1))
+                for w, c in tf.items()
             }
-            norm = math.sqrt(sum(value * value for value in vector.values())) or 1
-            vectors.append({word: value / norm for word, value in vector.items()})
+            norm = math.sqrt(sum(v * v for v in vec.values())) or 1.0
+            vectors.append({w: v / norm for w, v in vec.items()})
         return vectors
 
     def transform(self, text: str, vocabulary: Iterable[str] | None = None) -> dict[str, float]:
         words = tokenize(text)
-        counts = Counter(words)
-        allowed = set(vocabulary or counts)
-        vector = {word: 1 + math.log(frequency) for word, frequency in counts.items() if word in allowed}
-        norm = math.sqrt(sum(value * value for value in vector.values())) or 1
-        return {word: value / norm for word, value in vector.items()}
+        tf = Counter(words)
+        allowed = set(vocabulary) if vocabulary else set(tf)
+        vec = {w: 1 + math.log(c) for w, c in tf.items() if w in allowed}
+        norm = math.sqrt(sum(v * v for v in vec.values())) or 1.0
+        return {w: v / norm for w, v in vec.items()}
 
 
-def cosine(left: dict[str, float], right: dict[str, float]) -> float:
-    if not left or not right:
+def cosine(a: dict[str, float], b: dict[str, float]) -> float:
+    if not a or not b:
         return 0.0
-    return sum(value * right.get(key, 0.0) for key, value in left.items())
+    return sum(a[k] * b.get(k, 0.0) for k in a)
 
+
+# ── Section & Chunking ────────────────────────────────────────────────────────
 
 def split_sections(text: str) -> list[tuple[str, str]]:
+    """Detect section boundaries using heuristics."""
     sections: list[tuple[str, str]] = []
     current = "Introduction"
-    buffer: list[str] = []
+    buf: list[str] = []
     for line in text.splitlines():
         clean = line.strip()
         if not clean:
             continue
         is_heading = len(clean) < 90 and (
-            clean.isupper() or re.match(r"^(?:\d+(?:\.\d+)*[.)]?\s+)?[A-Z][^.!?]{2,}$", clean)
+            clean.isupper()
+            or re.match(r"^(?:\d+(?:\.\d+)*[.)]?\s+)?[A-Z][^.!?]{2,80}$", clean)
         )
-        if is_heading and buffer:
-            sections.append((current, "\n".join(buffer)))
-            buffer = []
+        if is_heading and buf:
+            sections.append((current, "\n".join(buf)))
+            buf = []
         if is_heading:
             current = clean
         else:
-            buffer.append(clean)
-    if buffer:
-        sections.append((current, "\n".join(buffer)))
+            buf.append(clean)
+    if buf:
+        sections.append((current, "\n".join(buf)))
     return sections or [("Document", text.strip())]
 
 
-def chunk_text(document_id: str, document_name: str, text: str, page: int | None = None, size: int = 900, overlap: int = 140) -> list[Chunk]:
+def chunk_text(
+    document_id: str,
+    document_name: str,
+    text: str,
+    page: int | None = None,
+    size: int = 900,
+    overlap: int = 140,
+) -> list[Chunk]:
     chunks: list[Chunk] = []
+    idx = 0
     for section, section_text in split_sections(text):
         words = section_text.split()
+        word_size = max(size // 5, 30)
+        word_overlap = max(overlap // 5, 5)
         start = 0
         while start < len(words):
-            end = min(len(words), start + size // 5)
+            end = min(len(words), start + word_size)
             content = " ".join(words[start:end]).strip()
             if content:
-                chunks.append(Chunk(
-                    id=str(uuid.uuid4()),
-                    document_id=document_id,
-                    document_name=document_name,
-                    text=content,
-                    page=page,
-                    section=section,
-                    index=len(chunks),
-                ))
-            if end >= len(words):
-                break
-            start = max(end - overlap // 5, start + 1)
+                chunks.append(
+                    Chunk(
+                        id=str(uuid.uuid4()),
+                        document_id=document_id,
+                        document_name=document_name,
+                        text=content,
+                        page=page,
+                        section=section,
+                        index=idx,
+                    )
+                )
+                idx += 1
+            start += word_size - word_overlap
     return chunks
 
 
-class HybridIndex:
-    def __init__(self, models: ModelProvider | None = None) -> None:
-        self.embedder = TfidfEmbedder()
-        self.models = models or ModelProvider()
+# ── Vector Index ──────────────────────────────────────────────────────────────
+
+class VectorIndex:
+    """In-memory TF-IDF vector index with optional dense embedding overlay."""
+
+    def __init__(self) -> None:
         self.chunks: list[Chunk] = []
+        self._embedder = TfidfEmbedder()
+        self._vocab: set[str] = set()
 
-    def add(self, chunks: list[Chunk]) -> None:
-        self.chunks.extend(chunks)
-        vectors = self.models.embed([chunk.text for chunk in self.chunks]) or self.embedder.fit_transform([chunk.text for chunk in self.chunks])
-        for chunk, vector in zip(self.chunks, vectors):
-            chunk.embedding = vector
+    def build(self, chunks: list[Chunk]) -> None:
+        self.chunks = chunks
+        vectors = self._embedder.fit_transform(c.text for c in chunks)
+        for chunk, vec in zip(chunks, vectors):
+            chunk.embedding = vec
+            self._vocab.update(vec)
 
-    def search(self, query: str, limit: int = 6, document_id: str | None = None) -> list[dict]:
-        query_words = Counter(tokenize(query))
-        query_vector = self.models.embed([query])
-        query_vector = query_vector[0] if query_vector else self.embedder.transform(query)
-        scored = []
-        for chunk in self.chunks:
-            if document_id and chunk.document_id != document_id:
-                continue
-            lexical = sum(query_words[word] for word in tokenize(chunk.text) if word in query_words)
-            lexical_score = min(lexical / max(sum(query_words.values()), 1), 1.0)
-            semantic_score = cosine(query_vector, chunk.embedding)
-            score = 0.62 * semantic_score + 0.38 * lexical_score
-            scored.append((score, chunk))
-        scored.sort(key=lambda item: item[0], reverse=True)
-        return [{**asdict(chunk), "score": round(score, 4), "citation": chunk.citation()} for score, chunk in scored[:limit]]
+    def add(self, new_chunks: list[Chunk]) -> None:
+        """Incrementally add chunks and rebuild index."""
+        self.chunks.extend(new_chunks)
+        self.build(self.chunks)
+
+    def search(self, query: str, k: int = 6) -> list[tuple[Chunk, float]]:
+        if not self.chunks:
+            return []
+        q_vec = self._embedder.transform(query, self._vocab)
+        scored = [(c, cosine(q_vec, c.embedding)) for c in self.chunks]
+        scored.sort(key=lambda x: x[1], reverse=True)
+        return [(c, s) for c, s in scored[:k] if s > 0.0]
+
+    def save(self, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        data = [c.to_dict() for c in self.chunks]
+        path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+    def load(self, path: Path) -> None:
+        if not path.exists():
+            return
+        data = json.loads(path.read_text(encoding="utf-8"))
+        self.chunks = [Chunk.from_dict(d) for d in data]
+        # Rebuild vocab from loaded embeddings
+        for c in self.chunks:
+            self._vocab.update(c.embedding)
 
 
-@dataclass
-class GraphStore:
-    nodes: set[str] = field(default_factory=set)
-    edges: list[dict[str, str]] = field(default_factory=list)
-    available: bool = False
+# ── Knowledge Graph ───────────────────────────────────────────────────────────
 
-    def ingest(self, chunks: list[Chunk], models: ModelProvider | None = None) -> None:
-        for chunk in chunks:
-            entities = (models.entities(chunk.text) if models else None) or [word for word in tokenize(chunk.text) if len(word) > 5][:8]
-            self.nodes.update(entities)
-            for left, right in zip(entities, entities[1:]):
-                self.edges.append({"source": left, "target": right, "relation": "co-occurs"})
+class KnowledgeGraph:
+    """Lightweight in-process knowledge graph with optional Neo4j backend."""
 
-    def context(self, query: str) -> list[str]:
-        terms = set(tokenize(query))
-        return [edge["source"] + " relates to " + edge["target"] for edge in self.edges if edge["source"] in terms or edge["target"] in terms][:5]
+    def __init__(self) -> None:
+        self._local: dict[str, list[tuple[str, str]]] = defaultdict(list)
+        self._neo4j: Any = None
+        self.available = self._try_neo4j()
 
+    def _try_neo4j(self) -> bool:
+        uri = os.getenv("NEO4J_URI", "")
+        user = os.getenv("NEO4J_USERNAME", "neo4j")
+        pwd = os.getenv("NEO4J_PASSWORD", "graphmind")
+        if not uri:
+            return False
+        try:
+            from neo4j import GraphDatabase  # type: ignore
+            self._neo4j = GraphDatabase.driver(uri, auth=(user, pwd))
+            self._neo4j.verify_connectivity()
+            return True
+        except Exception:
+            return False
+
+    def extract_triples(self, text: str) -> list[tuple[str, str, str]]:
+        """Extract (subject, relation, object) triples via regex patterns."""
+        triples: list[tuple[str, str, str]] = []
+        # Pattern: "X is/are/uses/enables Y"
+        patterns = [
+            r"([A-Z][a-z]+(?:\s[A-Z][a-z]+)*)\s+(is|are|uses|enables|improves|reduces|increases|outperforms)\s+([A-Z][a-z]+(?:\s[A-Z][a-z]+)*)",
+            r"([A-Z]{2,})\s+(is|enables|uses|improves)\s+([A-Z][a-z]+(?:\s[A-Z][a-z]+)*)",
+        ]
+        for pat in patterns:
+            for m in re.finditer(pat, text):
+                subj, rel, obj = m.group(1).strip(), m.group(2).upper(), m.group(3).strip()
+                if len(subj) > 2 and len(obj) > 2:
+                    triples.append((subj, rel, obj))
+        return triples[:30]
+
+    def add_document(self, doc_id: str, doc_name: str, text: str) -> None:
+        """Extract and store triples from a document."""
+        triples = self.extract_triples(text)
+        for subj, rel, obj in triples:
+            self._local[subj.lower()].append((rel, obj))
+            self._local[obj.lower()].append((f"IS_{rel}_BY", subj))
+
+        if self._neo4j:
+            try:
+                with self._neo4j.session() as session:
+                    for subj, rel, obj in triples:
+                        session.run(
+                            "MERGE (a:Entity {name: $subj}) "
+                            "MERGE (b:Entity {name: $obj}) "
+                            "MERGE (a)-[r:" + rel + " {doc: $doc}]->(b)",
+                            subj=subj, obj=obj, doc=doc_name,
+                        )
+            except Exception:
+                pass
+
+    def neighbours(self, entity: str) -> list[str]:
+        """Return human-readable relation paths for an entity."""
+        entity_lower = entity.lower()
+        results: list[str] = []
+
+        # Local graph
+        for rel, obj in self._local.get(entity_lower, [])[:5]:
+            results.append(f"{entity} --[{rel}]--> {obj}")
+
+        # Neo4j
+        if self._neo4j:
+            try:
+                with self._neo4j.session() as session:
+                    cypher = (
+                        "MATCH (a:Entity {name: $name})-[r]->(b:Entity) "
+                        "RETURN type(r) AS rel, b.name AS obj LIMIT 5"
+                    )
+                    for rec in session.run(cypher, name=entity):
+                        results.append(f"{entity} --[{rec['rel']}]--> {rec['obj']}")
+            except Exception:
+                pass
+
+        return results
+
+
+# ── Demo Corpus ───────────────────────────────────────────────────────────────
+
+DEMO_CORPUS: list[dict] = [
+    {
+        "id": "demo-001",
+        "name": "RAG-Lewis2020.txt",
+        "text": (
+            "Retrieval-Augmented Generation (RAG) combines parametric memory of large language models "
+            "with non-parametric memory through dense passage retrieval. RAG uses a DPR retriever to "
+            "fetch relevant passages, then conditions a seq2seq generator on retrieved content. "
+            "RAG outperforms purely parametric models on open-domain QA benchmarks including Natural "
+            "Questions and TriviaQA. The model achieves state-of-the-art performance while providing "
+            "interpretable evidence through retrieved passages. RAG enables knowledge-intensive NLP "
+            "tasks without expensive retraining by updating only the non-parametric memory component. "
+            "Experiments show RAG generates more specific, factual and diverse responses compared to "
+            "purely generative baselines on knowledge-intensive tasks."
+        ),
+    },
+    {
+        "id": "demo-002",
+        "name": "RAPTOR-Sarthi2024.txt",
+        "text": (
+            "RAPTOR introduces recursive abstractive processing for tree-organized retrieval. "
+            "The system clusters text chunks using Gaussian Mixture Models and generates abstractive "
+            "summaries at each cluster level, building a hierarchical tree index. RAPTOR retrieval "
+            "queries nodes at multiple abstraction levels, enabling both fine-grained and broad "
+            "context retrieval. On QASPER and QuALITY benchmarks, RAPTOR improves performance "
+            "over standard RAG by 20% on multi-hop questions requiring global context understanding. "
+            "The hierarchical structure allows efficient navigation from document-level summaries "
+            "down to paragraph-level evidence, addressing the limitation of flat chunk retrieval "
+            "in standard RAG systems."
+        ),
+    },
+    {
+        "id": "demo-003",
+        "name": "HippoRAG-Gutierrez2025.txt",
+        "text": (
+            "HippoRAG is inspired by the hippocampal indexing theory of human long-term memory. "
+            "It uses OpenIE to extract knowledge graph triples from documents, stores them in a "
+            "graph structure, and applies Personalized PageRank for multi-hop retrieval. "
+            "The PPR score is computed as pi = alpha * eq + (1 - alpha) * pi * A, where eq is "
+            "the query seed vector and A is the adjacency matrix. HippoRAG enables complex "
+            "multi-hop question answering by traversing relation paths across multiple documents. "
+            "Evaluation on MuSiQue and 2WikiMultiHopQA shows HippoRAG improves F1 by 10-15 points "
+            "over standard RAG and ColBERT-based retrieval. The system integrates Sentence Transformers "
+            "for semantic entity matching during graph traversal."
+        ),
+    },
+    {
+        "id": "demo-004",
+        "name": "BioASQ-Nentidis2025.txt",
+        "text": (
+            "BioASQ 2025 is the 13th edition of the biomedical semantic indexing and question answering "
+            "challenge. Task B evaluates systems on yes/no, factoid, list, and summary biomedical questions "
+            "using PubMed abstracts as the evidence corpus. The 2025 challenge introduces a new track for "
+            "multi-document summarization and citation-aware answer generation. Participating systems must "
+            "retrieve relevant PubMed articles and generate both exact and ideal answers. Evaluation metrics "
+            "include Mean Average Precision for document retrieval and F1-score for exact answers. "
+            "Top systems in 2025 used hybrid retrieval combining dense bi-encoders with BM25, combined "
+            "with instruction-tuned generative models for answer synthesis. BioASQ serves as the primary "
+            "benchmark for GraphMind evaluation on biomedical question answering tasks."
+        ),
+    },
+    {
+        "id": "demo-005",
+        "name": "AgenticRAG-Suresh2026.txt",
+        "text": (
+            "Agentic RAG decomposes monolithic retrieval-generation into a multi-agent pipeline with "
+            "specialized roles: planner, retriever, reranker, generator, and verifier agents. "
+            "The planner agent uses chain-of-thought reasoning to decompose complex questions into "
+            "targeted sub-queries. The retriever agent performs hybrid search combining dense vectors "
+            "with BM25 lexical matching. The verifier agent cross-checks generated claims against "
+            "retrieved evidence using natural language inference. Agentic RAG reduces hallucination "
+            "rates by 35% compared to single-pass RAG on scientific QA benchmarks. The modular "
+            "architecture enables independent scaling and upgrading of individual agent components "
+            "without disrupting the overall pipeline. Agent coordination uses structured JSON message "
+            "passing for auditability and debugging."
+        ),
+    },
+]
+
+
+# ── Main Engine ───────────────────────────────────────────────────────────────
 
 class GraphMindEngine:
-    def __init__(self, data_dir: str | Path = "./data") -> None:
-        self.data_dir = Path(data_dir)
+    """Top-level engine: ingestion → indexing → retrieval → agentic QA."""
+
+    def __init__(self, data_dir: Path) -> None:
+        self.data_dir = data_dir
         self.data_dir.mkdir(parents=True, exist_ok=True)
-        self.models = ModelProvider()
-        self.index = HybridIndex(self.models)
-        self.graph = GraphStore()
-        self.orchestrator = GraphMindOrchestrator(self.models, self.index.search, self.graph.context)
+        self._docs_file = data_dir / "documents.json"
+        self._index_file = data_dir / "index.json"
+
         self.documents: dict[str, dict] = {}
-        self._load()
+        self.index = VectorIndex()
+        self.graph = KnowledgeGraph()
+        self.models = ModelProvider()
+        self.orchestrator = GraphMindOrchestrator(
+            models=self.models,
+            retrieve=self._retrieve,
+            graph_context=self.graph.neighbours,
+        )
+
+        self._load_state()
         if not self.documents:
-            self.add_document("demo-literature.txt", DEMO_TEXT, source="demo")
+            self._seed_demo_corpus()
 
-    def _load(self) -> None:
-        state = self.data_dir / "index.json"
-        if not state.exists():
-            return
-        payload = json.loads(state.read_text(encoding="utf-8"))
-        chunks = [Chunk(**item) for item in payload.get("chunks", [])]
+    # ── persistence ───────────────────────────────────────────────────────
+
+    def _load_state(self) -> None:
+        if self._docs_file.exists():
+            self.documents = json.loads(self._docs_file.read_text(encoding="utf-8"))
+        self.index.load(self._index_file)
+
+    def _save_state(self) -> None:
+        self._docs_file.write_text(
+            json.dumps(self.documents, ensure_ascii=False), encoding="utf-8"
+        )
+        self.index.save(self._index_file)
+
+    # ── demo seeding ──────────────────────────────────────────────────────
+
+    def _seed_demo_corpus(self) -> None:
+        for entry in DEMO_CORPUS:
+            self._ingest_text(
+                doc_id=entry["id"],
+                name=entry["name"],
+                text=entry["text"],
+                page_count=1,
+            )
+        self._save_state()
+
+    # ── ingestion ─────────────────────────────────────────────────────────
+
+    def _ingest_text(
+        self,
+        doc_id: str,
+        name: str,
+        text: str,
+        page_count: int = 1,
+    ) -> None:
+        chunks = chunk_text(doc_id, name, text)
+        # Apply dense embeddings if provider supports it
+        for chunk in chunks:
+            dense = self.models.embed(chunk.text)
+            if dense:
+                chunk.embedding = {f"dense_{i}": v for i, v in enumerate(dense)}
         self.index.add(chunks)
-        self.documents = payload.get("documents", {})
-        self.graph = GraphStore(**payload.get("graph", {}))
+        self.graph.add_document(doc_id, name, text)
+        self.documents[doc_id] = {
+            "id": doc_id,
+            "name": name,
+            "page_count": page_count,
+            "chunk_count": len(chunks),
+            "demo": doc_id.startswith("demo-"),
+        }
 
-    def _save(self) -> None:
-        graph = asdict(self.graph)
-        graph["nodes"] = sorted(self.graph.nodes)
-        payload = {"documents": self.documents, "chunks": [asdict(chunk) for chunk in self.index.chunks], "graph": graph}
-        (self.data_dir / "index.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    def ingest(self, name: str, content: bytes, content_type: str) -> dict:
+        """Ingest a PDF, TXT, or Markdown file."""
+        doc_id = str(uuid.uuid4())
+        text = ""
+        page_count = 1
 
-    def add_document(self, name: str, text: str, source: str = "upload") -> dict:
-        return self.add_document_pages(name, [(None, text)], source)
-
-    def add_document_pages(self, name: str, pages: list[tuple[int | None, str]], source: str = "upload") -> dict:
-        document_id = str(uuid.uuid4())
-        chunks = [
-            chunk
-            for page, text in pages
-            for chunk in chunk_text(document_id, name, text, page=page)
-        ]
-        self.index.add(chunks)
-        self.graph.ingest(chunks, self.models)
-        metadata = {"id": document_id, "name": name, "source": source, "chunks": len(chunks)}
-        self.documents[document_id] = metadata
-        self._save()
-        return metadata
-
-    def plan(self, question: str) -> dict:
-        terms = tokenize(question)
-        model_plan = self.models.plan(question)
-        return {"question_type": "comparative" if "compare" in terms or "difference" in terms else "factoid", "sub_queries": model_plan["sub_queries"] if model_plan else [question], "entities": model_plan["entities"] if model_plan else terms[:8], "planner": "model" if model_plan else "local"}
-
-    def ask(self, question: str, limit: int = 6, document_id: str | None = None) -> dict:
-        workflow = self.orchestrator.run(question, limit, document_id=document_id)
-        plan = workflow["plan"]
-        evidence = workflow["evidence"]
-        graph_context = workflow["graph_context"]
-        if evidence:
-            answer = self.models.generate(f"Answer the question using only the evidence. Cite the source names inline.\nQuestion: {question}\nEvidence: {' '.join(item['text'] for item in evidence[:4])}") or self._local_answer(question, evidence)
-            confidence = min(0.98, 0.42 + sum(item["score"] for item in evidence[:3]) / 3)
-            status = "grounded"
+        if content_type == "application/pdf" or name.lower().endswith(".pdf"):
+            text, page_count = self._extract_pdf(content)
+        elif content_type in ("text/plain", "text/markdown") or name.lower().endswith((".txt", ".md")):
+            text = content.decode("utf-8", errors="replace")
         else:
-            answer = "I could not find supporting passages in the indexed literature."
-            confidence = 0.0
-            status = "insufficient_evidence"
-        verification = self.models.verify(answer, evidence)
-        if verification and verification.get("supported") is False:
-            confidence = min(confidence, 0.35)
-        return {"question": question, "document_id": document_id, "answer": answer, "confidence": round(confidence, 2), "status": status, "plan": plan, "evidence": evidence, "graph_context": graph_context, "verification": verification or {"supported": bool(evidence), "mode": "local"}, "provider": self.models.status(), "orchestration": {"agents": self.orchestrator.status()["agents"], "messages": workflow["messages"]}}
+            text = content.decode("utf-8", errors="replace")
 
-    def _local_answer(self, question: str, evidence: list[dict]) -> str:
-        sentences = []
-        terms = set(tokenize(question))
-        for item in evidence:
-            for sentence in SENTENCE_RE.split(item["text"]):
-                if len(terms.intersection(tokenize(sentence))) >= 2:
-                    sentences.append(sentence.strip())
-                if len(sentences) == 2:
-                    break
-            if len(sentences) == 2:
-                break
-        return " ".join(sentences) if sentences else evidence[0]["text"][:420].rstrip() + "..."
+        if not text.strip():
+            return {"error": "Could not extract text from the uploaded file."}
 
+        self._ingest_text(doc_id, name, text, page_count)
+        self._save_state()
+        return self.documents[doc_id]
 
-DEMO_TEXT = """GraphMind is a practical architecture for question answering over scientific literature.
-Retrieval combines lexical matching with local TF-IDF vectors so the demo works without a hosted database or embedding API.
+    def _extract_pdf(self, content: bytes) -> tuple[str, int]:
+        """Extract text from PDF bytes using pypdf."""
+        pages: list[str] = []
+        try:
+            from io import BytesIO
+            from pypdf import PdfReader  # type: ignore
+            reader = PdfReader(BytesIO(content))
+            for page in reader.pages:
+                extracted = page.extract_text() or ""
+                pages.append(extracted)
+        except ImportError:
+            return content.decode("utf-8", errors="replace"), 1
+        except Exception:
+            return "", 0
+        return "\n\n".join(pages), len(pages)
 
-Evidence and provenance
-Every passage keeps its source document, section, page when available, and stable chunk identifier. Answers should cite these passages rather than inventing unsupported claims.
+    def delete_document(self, doc_id: str) -> bool:
+        if doc_id not in self.documents:
+            return False
+        self.documents.pop(doc_id)
+        self.index.chunks = [c for c in self.index.chunks if c.document_id != doc_id]
+        if self.index.chunks:
+            self.index.build(self.index.chunks)
+        self._save_state()
+        return True
 
-Knowledge graphs
-Scientific concepts can be represented as entities and co-occurrence relationships. Neo4j is optional; the local graph fallback stores a lightweight relationship index for demonstrations and tests.
+    # ── retrieval ────────────────────────────────────────────────────────
 
-Verification
-The verifier checks whether an answer has retrieved evidence and lowers confidence when evidence is missing. This makes uncertainty visible instead of returning a confident unsupported response.
+    def _retrieve(self, query: str, k: int = 6) -> list[dict]:
+        results = self.index.search(query, k)
+        return [
+            {
+                "chunk_id": c.id,
+                "document_id": c.document_id,
+                "document_name": c.document_name,
+                "text": c.text,
+                "page": c.page,
+                "section": c.section,
+                "score": round(score, 4),
+                "citation": c.citation(),
+            }
+            for c, score in results
+        ]
 
-Future work
-Production deployments can replace the local embedder with a sentence-transformer model and connect an OpenAI-compatible or local Ollama provider without changing the retrieval API."""
+    # ── QA ────────────────────────────────────────────────────────────────
+
+    def ask(
+        self,
+        question: str,
+        limit: int = 6,
+        document_id: str | None = None,
+    ) -> dict:
+        """Run the full agentic pipeline and return a structured response."""
+        return self.orchestrator.run(question, limit=limit, document_id=document_id)
