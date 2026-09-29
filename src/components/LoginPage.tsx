@@ -1,0 +1,232 @@
+import React, { useState } from 'react';
+import {
+  loginWithEmail, registerWithEmail,
+  loginWithGoogle, loginWithGitHub,
+  resetPassword,
+} from '../lib/firebase';
+
+type Mode = 'login' | 'register' | 'reset';
+
+interface LoginPageProps {
+  onSuccess?: () => void;
+}
+
+export default function LoginPage({ onSuccess }: LoginPageProps) {
+  const [mode, setMode]         = useState<Mode>('login');
+  const [email, setEmail]       = useState('');
+  const [password, setPassword] = useState('');
+  const [name, setName]         = useState('');
+  const [error, setError]       = useState('');
+  const [info, setInfo]         = useState('');
+  const [loading, setLoading]   = useState(false);
+
+  const clearMessages = () => { setError(''); setInfo(''); };
+
+  const friendlyError = (code: string) => {
+    const map: Record<string, string> = {
+      'auth/user-not-found':      'No account with this email.',
+      'auth/wrong-password':      'Incorrect password.',
+      'auth/email-already-in-use':'Email already registered — try logging in.',
+      'auth/weak-password':       'Password must be at least 6 characters.',
+      'auth/invalid-email':       'Invalid email address.',
+      'auth/popup-closed-by-user':'Popup closed — try again.',
+      'auth/network-request-failed': 'Network error — check your connection.',
+    };
+    return map[code] || 'Something went wrong. Please try again.';
+  };
+
+  const handle = async (e: React.FormEvent) => {
+    e.preventDefault();
+    clearMessages();
+    setLoading(true);
+    try {
+      if (mode === 'login') {
+        await loginWithEmail(email, password);
+        onSuccess?.();
+      } else if (mode === 'register') {
+        await registerWithEmail(email, password, name || email.split('@')[0]);
+        onSuccess?.();
+      } else {
+        await resetPassword(email);
+        setInfo('Password reset email sent! Check your inbox.');
+        setMode('login');
+      }
+    } catch (err: any) {
+      setError(friendlyError(err?.code || ''));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleOAuth = async (provider: 'google' | 'github') => {
+    clearMessages();
+    setLoading(true);
+    try {
+      await (provider === 'google' ? loginWithGoogle() : loginWithGitHub());
+      onSuccess?.();
+    } catch (err: any) {
+      setError(friendlyError(err?.code || ''));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div style={styles.overlay}>
+      <div style={styles.card}>
+        {/* Header */}
+        <div style={styles.header}>
+          <div style={styles.logo}>⬡</div>
+          <h1 style={styles.title}>GraphMind</h1>
+          <p style={styles.subtitle}>Evidence-first Scientific QA</p>
+        </div>
+
+        {/* Tabs */}
+        {mode !== 'reset' && (
+          <div style={styles.tabs}>
+            <button style={{...styles.tab, ...(mode==='login'?styles.tabActive:{})}}
+              onClick={() => { setMode('login'); clearMessages(); }}>
+              Sign In
+            </button>
+            <button style={{...styles.tab, ...(mode==='register'?styles.tabActive:{})}}
+              onClick={() => { setMode('register'); clearMessages(); }}>
+              Register
+            </button>
+          </div>
+        )}
+
+        {mode === 'reset' && (
+          <h2 style={styles.resetTitle}>Reset Password</h2>
+        )}
+
+        {/* OAuth Buttons */}
+        {mode !== 'reset' && (
+          <div style={styles.oauthRow}>
+            <button style={styles.oauthBtn} onClick={() => handleOAuth('google')} disabled={loading}>
+              <span style={styles.oauthIcon}>G</span> Continue with Google
+            </button>
+            <button style={{...styles.oauthBtn, ...styles.githubBtn}} onClick={() => handleOAuth('github')} disabled={loading}>
+              <span style={styles.oauthIcon}>⌥</span> Continue with GitHub
+            </button>
+          </div>
+        )}
+
+        {mode !== 'reset' && <div style={styles.divider}><span>or</span></div>}
+
+        {/* Form */}
+        <form onSubmit={handle} style={styles.form}>
+          {mode === 'register' && (
+            <input
+              style={styles.input} type="text" placeholder="Display Name"
+              value={name} onChange={e => setName(e.target.value)} disabled={loading}
+            />
+          )}
+          <input
+            style={styles.input} type="email" placeholder="Email address"
+            value={email} onChange={e => setEmail(e.target.value)}
+            required disabled={loading}
+          />
+          {mode !== 'reset' && (
+            <input
+              style={styles.input} type="password"
+              placeholder={mode === 'register' ? 'Password (min 6 chars)' : 'Password'}
+              value={password} onChange={e => setPassword(e.target.value)}
+              required disabled={loading}
+            />
+          )}
+
+          {error && <div style={styles.error}>{error}</div>}
+          {info  && <div style={styles.info}>{info}</div>}
+
+          <button style={{...styles.submitBtn, opacity: loading ? 0.7 : 1}}
+            type="submit" disabled={loading}>
+            {loading ? 'Please wait…' :
+              mode === 'login'    ? 'Sign In' :
+              mode === 'register' ? 'Create Account' : 'Send Reset Email'}
+          </button>
+        </form>
+
+        {/* Footer links */}
+        <div style={styles.footerLinks}>
+          {mode !== 'reset' && (
+            <button style={styles.link} onClick={() => { setMode('reset'); clearMessages(); }}>
+              Forgot password?
+            </button>
+          )}
+          {mode === 'reset' && (
+            <button style={styles.link} onClick={() => { setMode('login'); clearMessages(); }}>
+              ← Back to Sign In
+            </button>
+          )}
+        </div>
+
+        <p style={styles.badge}>
+          🔒 Secured by Firebase Authentication · Free Tier
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ── Styles ────────────────────────────────────────────────────────────────
+const styles: Record<string, React.CSSProperties> = {
+  overlay: {
+    minHeight: '100vh', display: 'flex', alignItems: 'center',
+    justifyContent: 'center', background: '#0a0e1a', padding: '20px',
+  },
+  card: {
+    background: '#111827', border: '1px solid #1e3a5f',
+    borderRadius: '16px', padding: '40px', width: '100%',
+    maxWidth: '420px', boxShadow: '0 25px 50px rgba(0,0,0,0.5)',
+  },
+  header: { textAlign: 'center', marginBottom: '28px' },
+  logo: { fontSize: '48px', color: '#06b6d4', marginBottom: '8px' },
+  title: { color: '#e2e8f0', fontSize: '28px', fontWeight: 700, margin: 0 },
+  subtitle: { color: '#64748b', fontSize: '14px', marginTop: '4px' },
+  tabs: { display: 'flex', borderRadius: '8px', overflow: 'hidden',
+    border: '1px solid #1e3a5f', marginBottom: '24px' },
+  tab: { flex: 1, padding: '10px', background: 'transparent', border: 'none',
+    color: '#94a3b8', cursor: 'pointer', fontSize: '14px', fontWeight: 500,
+    transition: 'all 0.2s' },
+  tabActive: { background: '#06b6d4', color: '#0a0e1a', fontWeight: 700 },
+  resetTitle: { color: '#e2e8f0', textAlign: 'center', marginBottom: '24px' },
+  oauthRow: { display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '20px' },
+  oauthBtn: {
+    display: 'flex', alignItems: 'center', gap: '10px', justifyContent: 'center',
+    padding: '11px', borderRadius: '8px', border: '1px solid #334155',
+    background: '#1e293b', color: '#e2e8f0', cursor: 'pointer',
+    fontSize: '14px', fontWeight: 500, transition: 'background 0.2s',
+  },
+  githubBtn: { background: '#1c2331', borderColor: '#374151' },
+  oauthIcon: { fontWeight: 700, fontSize: '16px', color: '#06b6d4' },
+  divider: {
+    textAlign: 'center', position: 'relative', margin: '20px 0',
+    color: '#475569', fontSize: '12px',
+    borderTop: '1px solid #1e3a5f', lineHeight: '0',
+  },
+  form: { display: 'flex', flexDirection: 'column', gap: '12px' },
+  input: {
+    padding: '12px 14px', borderRadius: '8px', border: '1px solid #1e3a5f',
+    background: '#0a0e1a', color: '#e2e8f0', fontSize: '14px', outline: 'none',
+    transition: 'border-color 0.2s',
+  },
+  error: {
+    background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)',
+    color: '#fca5a5', padding: '10px 12px', borderRadius: '8px', fontSize: '13px',
+  },
+  info: {
+    background: 'rgba(6,182,212,0.1)', border: '1px solid rgba(6,182,212,0.3)',
+    color: '#67e8f9', padding: '10px 12px', borderRadius: '8px', fontSize: '13px',
+  },
+  submitBtn: {
+    padding: '13px', background: '#06b6d4', color: '#0a0e1a', border: 'none',
+    borderRadius: '8px', fontSize: '15px', fontWeight: 700,
+    cursor: 'pointer', marginTop: '4px', transition: 'opacity 0.2s',
+  },
+  footerLinks: { textAlign: 'center', marginTop: '16px' },
+  link: {
+    background: 'none', border: 'none', color: '#06b6d4',
+    cursor: 'pointer', fontSize: '13px', textDecoration: 'underline',
+  },
+  badge: { textAlign: 'center', color: '#475569', fontSize: '11px', marginTop: '20px' },
+};
