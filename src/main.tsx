@@ -670,8 +670,15 @@ function App() {
           {authMode === 'phone' && (
             <>
               <input type="tel" required placeholder="+91 9876543210 (with country code)" value={phone} onChange={(event) => setPhone(event.target.value)} />
+              <input
+                type="email"
+                placeholder="your@email.com (OTP will be delivered here)"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                style={{ marginTop: '6px' }}
+              />
               {(otpSent || otpConfirm) && (
-                <input type="text" required placeholder="Enter 6-digit SMS OTP code" value={otpCode} onChange={(event) => setOtpCode(event.target.value)} />
+                <input type="text" required placeholder="Enter 6-digit OTP code" value={otpCode} onChange={(event) => setOtpCode(event.target.value)} />
               )}
               <div id="recaptcha-container" />
             </>
