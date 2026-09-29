@@ -1,21 +1,45 @@
-"""Optional model adapters with explicit, dependency-safe local fallbacks."""
+"""Optional model adapters with explicit, dependency-safe local fallbacks.
+
+Provider hierarchy:
+  local              – TF-IDF embeddings, extractive generation (zero extra deps)
+  sentence-transformers – dense embeddings via sentence-transformers library
+  huggingface        – transformers pipeline for generation + NER
+  openai-compatible  – any OpenAI-spec REST endpoint (Groq, LM Studio, etc.)
+  groq               – shortcut alias for Groq's hosted API
+"""
 
 from __future__ import annotations
 
 import json
 import os
+import re
 from typing import Any
 from urllib.request import Request, urlopen
+from urllib.error import URLError
 
 
 class ModelProvider:
+    """Unified adapter for all model backends."""
+
     def __init__(self) -> None:
         self.name = os.getenv("GRAPHMIND_MODEL_PROVIDER", "local").lower()
-        self.slots = [slot.strip() for slot in os.getenv("GRAPHMIND_PROVIDER_SLOTS", self.name).split(",") if slot.strip()][:5] or ["local"]
-        self.embedding_model = os.getenv("GRAPHMIND_EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
-        self.generation_model = os.getenv("GRAPHMIND_GENERATION_MODEL", "google/flan-t5-base")
+        self.slots = [
+            s.strip()
+            for s in os.getenv("GRAPHMIND_PROVIDER_SLOTS", self.name).split(",")
+            if s.strip()
+        ][:5] or ["local"]
+        self.embedding_model = os.getenv(
+            "GRAPHMIND_EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2"
+        )
+        self.generation_model = os.getenv(
+            "GRAPHMIND_GENERATION_MODEL", "google/flan-t5-base"
+        )
+        self.ner_model = os.getenv("GRAPHMIND_NER_MODEL", "dslim/bert-base-NER")
         self._embedder: Any = None
         self._generator: Any = None
+        self._ner: Any = None
+
+    # ── key/url helpers ────────────────────────────────────────────────────
 
     def _api_key(self, provider: str | None = None) -> str:
         selected = provider or self.name
@@ -24,10 +48,15 @@ class ModelProvider:
             or os.getenv("GRAPHMIND_LLM_API_KEY", "")
         )
 
-    def _api_url(self) -> str | None:
+    def _api_url(self) -> str:
         if self.name == "groq":
-            return os.getenv("GRAPHMIND_GROQ_API_URL", "https://api.groq.com/openai/v1/chat/completions")
-        return os.getenv("GRAPHMIND_LLM_API_URL")
+            return os.getenv(
+                "GRAPHMIND_GROQ_API_URL",
+                "https://api.groq.com/openai/v1/chat/completions",
+            )
+        return os.getenv("GRAPHMIND_LLM_API_URL", "")
+
+    # ── status ────────────────────────────────────────────────────────────
 
     def status(self) -> dict[str, Any]:
         configured = self.name != "local"
@@ -37,86 +66,142 @@ class ModelProvider:
             "generation_model": self.generation_model if configured else None,
             "active": bool(self._embedder or self._generator) if configured else True,
             "fallback": "tfidf-and-extractive-local",
-            "slots": [{"name": slot, "configured": slot == "local" or bool(self._api_key(slot))} for slot in self.slots],
+            "slots": [
+                {
+                    "name": slot,
+                    "configured": slot == "local" or bool(self._api_key(slot)),
+                }
+                for slot in self.slots
+            ],
         }
+
+    # ── embedding ─────────────────────────────────────────────────────────
 
     def _load_embedding_model(self) -> Any:
         if self._embedder is not None:
             return self._embedder
-        from sentence_transformers import SentenceTransformer
-        self._embedder = SentenceTransformer(self.embedding_model)
+        if self.name in ("sentence-transformers", "huggingface"):
+            try:
+                from sentence_transformers import SentenceTransformer  # type: ignore
+
+                self._embedder = SentenceTransformer(self.embedding_model)
+            except ImportError:
+                pass
         return self._embedder
 
-    def embed(self, texts: list[str]) -> list[dict[str, float]] | None:
-        if self.name not in {"sentence-transformers", "huggingface"}:
-            return None
-        try:
-            vectors = self._load_embedding_model().encode(texts, normalize_embeddings=True)
-            return [{str(index): float(value) for index, value in enumerate(vector)} for vector in vectors]
-        except (ImportError, OSError, RuntimeError):
-            return None
+    def embed(self, text: str) -> list[float]:
+        """Return a dense embedding vector if a model is available, else []."""
+        model = self._load_embedding_model()
+        if model is not None:
+            try:
+                vec = model.encode(text, normalize_embeddings=True)
+                return vec.tolist()
+            except Exception:
+                pass
+        return []
+
+    # ── generation ────────────────────────────────────────────────────────
 
     def _load_generator(self) -> Any:
         if self._generator is not None:
             return self._generator
-        from transformers import pipeline
-        task = "text2text-generation" if "t5" in self.generation_model.lower() else "text-generation"
-        self._generator = pipeline(task, model=self.generation_model)
+        if self.name == "huggingface":
+            try:
+                from transformers import pipeline  # type: ignore
+
+                self._generator = pipeline(
+                    "text2text-generation",
+                    model=self.generation_model,
+                    max_new_tokens=300,
+                )
+            except ImportError:
+                pass
         return self._generator
 
-    def generate(self, prompt: str) -> str | None:
-        if self.name == "local":
-            return None
-        if self.name in {"huggingface", "sentence-transformers"}:
+    def _call_api(self, prompt: str, max_tokens: int = 400) -> str:
+        """Call an OpenAI-compatible REST endpoint."""
+        url = self._api_url()
+        key = self._api_key()
+        if not url or not key:
+            return ""
+        payload = json.dumps(
+            {
+                "model": self.generation_model,
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": max_tokens,
+                "temperature": 0.2,
+            }
+        ).encode()
+        req = Request(
+            url,
+            data=payload,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {key}",
+            },
+            method="POST",
+        )
+        try:
+            with urlopen(req, timeout=30) as resp:
+                data = json.loads(resp.read())
+                return data["choices"][0]["message"]["content"].strip()
+        except (URLError, KeyError, json.JSONDecodeError):
+            return ""
+
+    def generate(self, prompt: str, max_tokens: int = 400) -> str:
+        """Generate text. Falls back to empty string on failure."""
+        if self.name in ("openai-compatible", "groq"):
+            result = self._call_api(prompt, max_tokens)
+            if result:
+                return result
+
+        gen = self._load_generator()
+        if gen is not None:
             try:
-                result = self._load_generator()(prompt, max_new_tokens=220, do_sample=False)
-                return str(result[0].get("generated_text") or result[0].get("text", "")).strip()
-            except (ImportError, OSError, RuntimeError):
-                return None
-        if self.name in {"openai", "openai-compatible", "groq"}:
-            url = self._api_url()
-            key = self._api_key()
-            if not url or not key:
-                return None
-            try:
-                request = Request(url, data=json.dumps({"model": self.generation_model, "messages": [{"role": "user", "content": prompt}], "temperature": 0}).encode(), headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
-                with urlopen(request, timeout=30) as response:
-                    payload = json.loads(response.read())
-                return str(payload["choices"][0]["message"]["content"]).strip()
-            except (KeyError, OSError, TimeoutError, json.JSONDecodeError):
-                return None
-        return None
+                out = gen(prompt, max_new_tokens=max_tokens)
+                return out[0]["generated_text"].strip()
+            except Exception:
+                pass
 
-    def summarize(self, text: str) -> str | None:
-        return self.generate(f"Summarize this scientific passage in two concise sentences:\n{text}")
+        return ""
 
-    def plan(self, question: str) -> dict[str, Any] | None:
-        result = self.generate(f"Return JSON with sub_queries and entities for this literature question: {question}")
-        if not result:
-            return None
-        try:
-            parsed = json.loads(result)
-            return {"sub_queries": parsed.get("sub_queries", [question]), "entities": parsed.get("entities", [])}
-        except json.JSONDecodeError:
-            return None
+    def summarize(self, text: str) -> str:
+        """Summarize text using available provider."""
+        prompt = f"Summarize the following scientific text in 2-3 sentences:\n\n{text[:2000]}"
+        result = self.generate(prompt, max_tokens=150)
+        if result:
+            return result
+        # Local extractive fallback: return first 2 sentences
+        sentences = re.split(r"(?<=[.!?])\s+", text.strip())
+        return " ".join(sentences[:2])
 
-    def verify(self, answer: str, evidence: list[dict]) -> dict[str, Any] | None:
-        if not evidence:
-            return {"supported": False, "reason": "No retrieved evidence"}
-        result = self.generate(f"Is this answer supported by the evidence? Return JSON with supported and reason.\nAnswer: {answer}\nEvidence: {' '.join(item['text'] for item in evidence[:3])}")
-        if not result:
-            return None
-        try:
-            return json.loads(result)
-        except json.JSONDecodeError:
-            return None
+    def extract_entities(self, text: str) -> list[str]:
+        """Extract named entities. Falls back to regex-based noun phrase extraction."""
+        if self.name == "huggingface":
+            if self._ner is None:
+                try:
+                    from transformers import pipeline  # type: ignore
 
-    def entities(self, text: str) -> list[str] | None:
-        if self.name != "huggingface":
-            return None
-        try:
-            from transformers import pipeline
-            ner = pipeline("token-classification", model=os.getenv("GRAPHMIND_NER_MODEL", "dslim/bert-base-NER"), aggregation_strategy="simple")
-            return [str(item["word"]).lower() for item in ner(text) if float(item.get("score", 0)) >= 0.75]
-        except (ImportError, OSError, RuntimeError):
-            return None
+                    self._ner = pipeline("ner", model=self.ner_model, aggregation_strategy="simple")
+                except ImportError:
+                    pass
+            if self._ner is not None:
+                try:
+                    results = self._ner(text[:512])
+                    return list({r["word"].strip() for r in results if len(r["word"].strip()) > 2})
+                except Exception:
+                    pass
+
+        # Local fallback: extract capitalized noun phrases and technical terms
+        entities: list[str] = []
+        # Multi-word capitalized phrases (proper nouns)
+        for m in re.finditer(r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b", text):
+            entities.append(m.group(1))
+        # Acronyms
+        for m in re.finditer(r"\b([A-Z]{2,6})\b", text):
+            entities.append(m.group(1))
+        # Hyphenated technical terms
+        for m in re.finditer(r"\b([a-z]+-[a-z]+-?[a-z]*)\b", text):
+            if len(m.group(1)) > 6:
+                entities.append(m.group(1).title())
+        return list(dict.fromkeys(entities))[:20]  # deduplicated, max 20
