@@ -1,7 +1,6 @@
-"""SQLite-backed authentication store with PBKDF2 password hashing and expiring bearer tokens."""
-
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
 import os
@@ -11,95 +10,53 @@ import time
 from pathlib import Path
 
 
-TOKEN_EXPIRY = int(os.getenv("GRAPHMIND_TOKEN_EXPIRY_HOURS", "24")) * 3600
+def _hash(password: str, salt: bytes | None = None) -> str:
+    salt = salt or secrets.token_bytes(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 240_000)
+    return f"{base64.urlsafe_b64encode(salt).decode()}${base64.urlsafe_b64encode(digest).decode()}"
+
+
+def _verify(password: str, encoded: str) -> bool:
+    salt, expected = encoded.split("$", 1)
+    actual = _hash(password, base64.urlsafe_b64decode(salt.encode())).split("$", 1)[1]
+    return hmac.compare_digest(actual, expected)
 
 
 class AuthStore:
-    def __init__(self, db_path: Path) -> None:
-        self._db = str(db_path)
-        db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._init_db()
-
-    def _conn(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self._db, check_same_thread=False)
-        conn.row_factory = sqlite3.Row
-        return conn
-
-    def _init_db(self) -> None:
-        with self._conn() as conn:
-            conn.executescript("""
-                CREATE TABLE IF NOT EXISTS users (
-                    id TEXT PRIMARY KEY,
-                    email TEXT UNIQUE NOT NULL,
-                    password_hash TEXT NOT NULL,
-                    created_at REAL NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS tokens (
-                    token TEXT PRIMARY KEY,
-                    user_id TEXT NOT NULL,
-                    created_at REAL NOT NULL,
-                    FOREIGN KEY(user_id) REFERENCES users(id)
-                );
-            """)
-
-    @staticmethod
-    def _hash_password(password: str) -> str:
-        salt = secrets.token_hex(16)
-        dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 260000)
-        return f"{salt}:{dk.hex()}"
-
-    @staticmethod
-    def _verify_password(password: str, stored: str) -> bool:
-        try:
-            salt, dk_hex = stored.split(":", 1)
-            dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 260000)
-            return hmac.compare_digest(dk.hex(), dk_hex)
-        except Exception:
-            return False
+    def __init__(self, path: str | Path) -> None:
+        self.path = str(path)
+        with sqlite3.connect(self.path) as db:
+            db.execute("CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL, created_at REAL NOT NULL)")
+            db.execute("CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL, expires_at REAL NOT NULL)")
 
     def register(self, email: str, password: str) -> dict:
-        import uuid
-        user_id = str(uuid.uuid4())
-        pw_hash = self._hash_password(password)
+        user_id = secrets.token_urlsafe(12)
         try:
-            with self._conn() as conn:
-                conn.execute(
-                    "INSERT INTO users (id, email, password_hash, created_at) VALUES (?,?,?,?)",
-                    (user_id, email, pw_hash, time.time()),
-                )
-            return {"id": user_id, "email": email}
-        except sqlite3.IntegrityError:
-            return {}
+            with sqlite3.connect(self.path) as db:
+                db.execute("INSERT INTO users VALUES (?, ?, ?, ?)", (user_id, email.lower().strip(), _hash(password), time.time()))
+        except sqlite3.IntegrityError as exc:
+            raise ValueError("An account with that email already exists") from exc
+        return {"id": user_id, "email": email.lower().strip()}
 
-    def login(self, email: str, password: str) -> str | None:
-        with self._conn() as conn:
-            row = conn.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
-        if not row or not self._verify_password(password, row["password_hash"]):
-            return None
+    def login(self, email: str, password: str) -> tuple[dict, str]:
+        with sqlite3.connect(self.path) as db:
+            row = db.execute("SELECT id, email, password_hash FROM users WHERE email = ?", (email.lower().strip(),)).fetchone()
+        if not row or not _verify(password, row[2]):
+            raise ValueError("Invalid email or password")
         token = secrets.token_urlsafe(32)
-        with self._conn() as conn:
-            conn.execute(
-                "INSERT INTO tokens (token, user_id, created_at) VALUES (?,?,?)",
-                (token, row["id"], time.time()),
-            )
-        return token
-
-    def logout(self, token: str) -> None:
-        with self._conn() as conn:
-            conn.execute("DELETE FROM tokens WHERE token=?", (token,))
+        with sqlite3.connect(self.path) as db:
+            db.execute("INSERT INTO sessions VALUES (?, ?, ?)", (hashlib.sha256(token.encode()).hexdigest(), row[0], time.time() + 60 * 60 * 24 * 7))
+        return {"id": row[0], "email": row[1]}, token
 
     def user_for_token(self, token: str | None) -> dict | None:
         if not token:
             return None
-        with self._conn() as conn:
-            row = conn.execute(
-                "SELECT t.created_at, u.id, u.email FROM tokens t "
-                "JOIN users u ON u.id=t.user_id WHERE t.token=?",
-                (token,),
-            ).fetchone()
-        if not row:
-            return None
-        if time.time() - row["created_at"] > TOKEN_EXPIRY:
-            self.logout(token)
-            return None
-        return {"id": row["id"], "email": row["email"]}
+        digest = hashlib.sha256(token.encode()).hexdigest()
+        with sqlite3.connect(self.path) as db:
+            row = db.execute("SELECT users.id, users.email FROM sessions JOIN users ON users.id = sessions.user_id WHERE sessions.token_hash = ? AND sessions.expires_at > ?", (digest, time.time())).fetchone()
+        return {"id": row[0], "email": row[1]} if row else None
+
+    def logout(self, token: str | None) -> None:
+        if token:
+            with sqlite3.connect(self.path) as db:
+                db.execute("DELETE FROM sessions WHERE token_hash = ?", (hashlib.sha256(token.encode()).hexdigest(),))
