@@ -56,6 +56,7 @@ class MagicVerifyRequest(BaseModel):
 
 class PhoneSendRequest(BaseModel):
     phone: str = Field(min_length=5, max_length=32)
+    email: str | None = Field(default=None, max_length=254)
 
 
 class PhoneVerifyRequest(BaseModel):
@@ -165,7 +166,7 @@ def magic_verify(payload: MagicVerifyRequest) -> dict:
 @app.post("/api/auth/phone-send")
 def phone_send(payload: PhoneSendRequest) -> dict:
     try:
-        return auth.send_phone_otp(payload.phone)
+        return auth.send_phone_otp(payload.phone, payload.email)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
