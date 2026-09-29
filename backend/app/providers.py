@@ -77,12 +77,16 @@ class ModelProvider:
         self._generator = pipeline(task, model=self.generation_model)
         return self._generator
 
-    def _call_openai_compatible(self, provider: str, prompt: str) -> str | None:
+    def _call_openai_compatible(self, provider: str, prompt: str, preferred_model: str | None = None) -> str | None:
         url = self._api_url(provider)
         key = self._api_key(provider)
         if not url or not key:
             return None
-        candidate_models = [self.generation_model]
+        candidate_models: list[str] = []
+        if preferred_model and preferred_model not in {"auto", "local"} and not preferred_model.startswith("gemini"):
+            candidate_models.append(preferred_model)
+        if self.generation_model not in candidate_models:
+            candidate_models.append(self.generation_model)
         if provider == "groq":
             for fallback_model in ("openai/gpt-oss-120b", "qwen/qwen3.8-27b", "openai/gpt-oss-20b"):
                 if fallback_model not in candidate_models:
@@ -98,7 +102,7 @@ class ModelProvider:
                 "model": model_name,
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": 0.2,
-                "max_tokens": 900,
+                "max_tokens": 1024,
             }
             try:
                 import httpx
@@ -112,15 +116,21 @@ class ModelProvider:
                 pass
         return None
 
-    def _call_gemini(self, prompt: str) -> str | None:
+    def _call_gemini(self, prompt: str, preferred_model: str | None = None) -> str | None:
         key = self._api_key("gemini")
         if not key:
             return None
-        for gem_model in (self.gemini_model, "gemini-3.8-flash", "gemini-3.8-flash-lite"):
+        models_to_try: list[str] = []
+        if preferred_model and preferred_model.startswith("gemini"):
+            models_to_try.append(preferred_model)
+        for m in (self.gemini_model, "gemini-3.8-flash", "gemini-3.8-flash-lite"):
+            if m not in models_to_try:
+                models_to_try.append(m)
+        for gem_model in models_to_try:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{gem_model}:generateContent?key={key}"
             body = {
                 "contents": [{"parts": [{"text": prompt}]}],
-                "generationConfig": {"temperature": 0.2, "maxOutputTokens": 900},
+                "generationConfig": {"temperature": 0.2, "maxOutputTokens": 1024},
             }
             try:
                 import httpx
@@ -134,10 +144,16 @@ class ModelProvider:
                 pass
         return None
 
-    def generate(self, prompt: str) -> str | None:
-        if self.name == "local":
+    def generate(self, prompt: str, preferred_model: str | None = None) -> str | None:
+        if preferred_model == "local" or (self.name == "local" and not preferred_model):
             return None
-        chain = [self.name] + [s for s in self.slots if s != self.name]
+        if preferred_model and preferred_model.startswith("gemini"):
+            chain = ["gemini"] + [s for s in self.slots if s != "gemini"]
+        elif preferred_model and preferred_model in {"openai/gpt-oss-120b", "qwen/qwen3.8-27b", "openai/gpt-oss-20b"}:
+            chain = ["groq"] + [s for s in self.slots if s != "groq"]
+        else:
+            chain = [self.name] + [s for s in self.slots if s != self.name]
+
         for slot in chain:
             if slot in {"huggingface", "sentence-transformers"}:
                 try:
@@ -148,11 +164,11 @@ class ModelProvider:
                 except (ImportError, OSError, RuntimeError):
                     continue
             elif slot in {"openai", "openai-compatible", "groq"}:
-                out = self._call_openai_compatible(slot, prompt)
+                out = self._call_openai_compatible(slot, prompt, preferred_model=preferred_model)
                 if out:
                     return out
             elif slot == "gemini":
-                out = self._call_gemini(prompt)
+                out = self._call_gemini(prompt, preferred_model=preferred_model)
                 if out:
                     return out
         return None
