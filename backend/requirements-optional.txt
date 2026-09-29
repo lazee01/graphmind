@@ -1,9 +1,16 @@
-# Optional production upgrades. The default requirements.txt stays lightweight.
-sentence-transformers>=3,<4
-torch>=2.4,<3
-faiss-cpu>=1.8,<2
-neo4j>=5.24,<6
-langchain>=0.3,<1
+# Optional ML/production dependencies
+# Install these when you want real embeddings + generation + graph DB
+# pip install -r requirements-optional.txt
+
+sentence-transformers>=3.0,<4
+transformers>=4.43,<5
+torch>=2.3
+accelerate>=0.30
+faiss-cpu>=1.8
+neo4j>=5.20,<6
 pymupdf>=1.24,<2
-pdf2image>=1.17,<2
-pytesseract>=0.3.13,<1
+langchain>=0.2,<1
+langchain-community>=0.2
+datasets>=2.20,<3
+scikit-learn>=1.5,<2
+numpy>=1.26,<2
