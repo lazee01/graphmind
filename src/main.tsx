@@ -7,14 +7,17 @@ import {
   Upload, X,
 } from 'lucide-react'
 import {
-  loginWithEmail, registerWithEmail, loginWithGoogle, logout as firebaseLogout, onAuthChange,
+  loginWithEmail, registerWithEmail, loginWithGoogle, logout as firebaseLogout, onAuthChange, syncQueryToFirebase,
 } from './lib/firebase'
 import './styles.css'
 
 type Evidence = { id: string; document_name: string; text: string; page: number | null; section: string; score: number; citation: string }
 type Answer = { question?: string; answer: string; confidence: number; status: string; provider: unknown; evidence: Evidence[]; graph_context: string[]; plan: { question_type: string; entities: string[] }; verification?: { supported: boolean; mode?: string } }
 type Document = { id: string; name: string; source: string; chunks: number }
-const API = (import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000').replace(/\/$/, '')
+const DEFAULT_API = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+  ? 'http://127.0.0.1:8000'
+  : 'https://graphmind-api-zhrf.onrender.com'
+const API = (import.meta.env.VITE_API_URL || DEFAULT_API).replace(/\/$/, '')
 const DEMO_DOCUMENTS: Document[] = [
   { id: 'demo-1', name: 'graphmind-methodology.txt', source: 'offline demo corpus', chunks: 4 },
   { id: 'demo-2', name: 'retrieval-systems-survey.txt', source: 'offline demo corpus', chunks: 3 },
@@ -84,6 +87,7 @@ function App() {
       if (!response.ok) throw new Error((await response.json()).detail || 'Query failed')
       const data = await response.json()
       setAnswer(data)
+      void syncQueryToFirebase({ question, answer: data.answer, confidence: data.confidence, status: data.status, userEmail: user?.email })
       if (offline) {
         setOffline(false)
         void loadWorkspace()
