@@ -43,10 +43,17 @@ class ModelProvider:
 
     def _api_key(self, provider: str | None = None) -> str:
         selected = provider or self.name
+        # Check provider-specific key first, then generic fallback
         return (
             os.getenv(f"GRAPHMIND_{selected.upper()}_API_KEY")
             or os.getenv("GRAPHMIND_LLM_API_KEY", "")
         )
+
+    def is_configured(self) -> bool:
+        """True if a working external provider is configured."""
+        if self.name == "local":
+            return False
+        return bool(self._api_key())
 
     def _api_url(self) -> str:
         if self.name == "groq":
@@ -64,7 +71,7 @@ class ModelProvider:
             "provider": self.name,
             "embedding_model": self.embedding_model if configured else None,
             "generation_model": self.generation_model if configured else None,
-            "active": bool(self._embedder or self._generator) if configured else True,
+            "active": bool(self._embedder or self._generator or self.is_configured()) if configured else True,
             "fallback": "tfidf-and-extractive-local",
             "slots": [
                 {
@@ -138,6 +145,7 @@ class ModelProvider:
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {key}",
+                "User-Agent": "GraphMind/1.0",
             },
             method="POST",
         )
