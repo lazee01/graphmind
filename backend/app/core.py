@@ -207,13 +207,20 @@ class KnowledgeGraph:
         pwd = os.getenv("NEO4J_PASSWORD", "graphmind")
         if not uri or not pwd:
             return False
+        driver = None
         try:
             from neo4j import GraphDatabase  # type: ignore
 
-            self._neo4j = GraphDatabase.driver(uri, auth=(user, pwd))
-            self._neo4j.verify_connectivity()
+            driver = GraphDatabase.driver(uri, auth=(user, pwd))
+            driver.verify_connectivity()
+            self._neo4j = driver
             return True
         except Exception:
+            if driver is not None:
+                try:
+                    driver.close()
+                except Exception:
+                    pass
             self._neo4j = None
             return False
 
@@ -325,9 +332,11 @@ DEMO_CORPUS: list[dict] = [
         "id": "demo-001",
         "name": "RAG-Lewis2020.txt",
         "text": (
+            "INTRODUCTION\n"
             "Retrieval-Augmented Generation (RAG) combines parametric memory of large language models "
             "with non-parametric memory through dense passage retrieval. RAG uses DPR to "
-            "fetch relevant passages, then conditions a seq2seq generator on retrieved content. "
+            "fetch relevant passages, then conditions a seq2seq generator on retrieved content.\n"
+            "RESULTS\n"
             "RAG outperforms Parametric Baselines on open-domain QA benchmarks including Natural "
             "Questions and TriviaQA. The model achieves state-of-the-art performance while providing "
             "interpretable evidence through retrieved passages. RAG enables Knowledge Intensive NLP "
@@ -338,10 +347,12 @@ DEMO_CORPUS: list[dict] = [
         "id": "demo-002",
         "name": "RAPTOR-Sarthi2024.txt",
         "text": (
+            "INTRODUCTION\n"
             "RAPTOR introduces Recursive Abstractive Processing for tree-organized retrieval. "
             "RAPTOR uses Gaussian Mixture Models and generates abstractive "
-            "summaries at each cluster level, building a hierarchical tree index. RAPTOR "
-            "improves RAG on QASPER and QuALITY benchmarks by 20% on multi-hop questions requiring global context understanding. "
+            "summaries at each cluster level, building a hierarchical tree index.\n"
+            "EVALUATION\n"
+            "RAPTOR improves RAG on QASPER and QuALITY benchmarks by 20% on multi-hop questions requiring global context understanding. "
             "RAPTOR enables Multi Level Retrieval from document-level summaries "
             "down to paragraph-level evidence, addressing the limitation of flat chunk retrieval."
         ),
@@ -350,10 +361,12 @@ DEMO_CORPUS: list[dict] = [
         "id": "demo-003",
         "name": "HippoRAG-Gutierrez2025.txt",
         "text": (
+            "METHODS\n"
             "HippoRAG uses OpenIE to extract knowledge graph triples from documents and applies Personalized PageRank for multi-hop retrieval. "
             "The PPR score is computed as pi = alpha * eq + (1 - alpha) * pi * A, where eq is "
-            "the query seed vector and A is the adjacency matrix. HippoRAG enables Multi Hop Reasoning "
-            "by traversing relation paths across multiple documents. "
+            "the query seed vector and A is the adjacency matrix.\n"
+            "RESULTS\n"
+            "HippoRAG enables Multi Hop Reasoning by traversing relation paths across multiple documents. "
             "HippoRAG outperforms Standard RAG on MuSiQue and 2WikiMultiHopQA by 10-15 F1 points. "
             "HippoRAG integrates Sentence Transformers for semantic entity matching during graph traversal."
         ),
@@ -362,18 +375,22 @@ DEMO_CORPUS: list[dict] = [
         "id": "demo-004",
         "name": "BioASQ-Nentidis2025.txt",
         "text": (
+            "OVERVIEW\n"
             "BioASQ evaluates Biomedical QA systems on yes/no, factoid, list, and summary questions "
-            "using PubMed as the evidence corpus. BioASQ introduces Citation Aware Summarization "
-            "for multi-document scientific synthesis. Top systems in 2025 used hybrid retrieval "
-            "combining dense bi-encoders with BM25 lexical search and instruction-tuned generators."
+            "using PubMed as the evidence corpus.\n"
+            "BENCHMARKS\n"
+            "BioASQ introduces Citation Aware Summarization for multi-document scientific synthesis. "
+            "Top systems in 2025 used hybrid retrieval combining dense bi-encoders with BM25 lexical search and instruction-tuned generators."
         ),
     },
     {
         "id": "demo-005",
         "name": "AgenticRAG-Suresh2026.txt",
         "text": (
+            "ARCHITECTURE\n"
             "Agentic RAG decomposes monolithic retrieval into specialized Planner, Retriever, Graph Reasoner, Verifier, and Generator agents. "
-            "Planner Agent uses Chain Of Thought to decompose complex questions into targeted sub-queries. "
+            "Planner Agent uses Chain Of Thought to decompose complex questions into targeted sub-queries.\n"
+            "VERIFICATION\n"
             "Retriever Agent combines Dense Vectors with BM25 lexical matching. "
             "Verifier Agent reduces Hallucination Rates by 35% compared to single-pass RAG on scientific QA benchmarks."
         ),
