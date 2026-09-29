@@ -81,20 +81,27 @@ class ModelProvider:
         key = self._api_key(provider)
         if not url or not key:
             return None
+        body = {
+            "model": self.generation_model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.2,
+            "max_tokens": 900,
+        }
+        headers = {
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) GraphMind/1.0",
+        }
         try:
-            request = Request(
-                url,
-                data=json.dumps({
-                    "model": self.generation_model,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.1,
-                }).encode(),
-                headers={
-                    "Authorization": f"Bearer {key}",
-                    "Content-Type": "application/json",
-                    "User-Agent": "GraphMind/1.0",
-                },
-            )
+            import httpx
+            resp = httpx.post(url, json=body, headers=headers, timeout=30.0)
+            if resp.status_code == 200:
+                payload = resp.json()
+                return str(payload["choices"][0]["message"]["content"]).strip()
+        except Exception:
+            pass
+        try:
+            request = Request(url, data=json.dumps(body).encode(), headers=headers)
             with urlopen(request, timeout=25) as response:
                 payload = json.loads(response.read())
             return str(payload["choices"][0]["message"]["content"]).strip()
@@ -106,14 +113,23 @@ class ModelProvider:
         key = self._api_key("gemini")
         if not url or not key:
             return None
+        body = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"temperature": 0.2, "maxOutputTokens": 900},
+        }
+        try:
+            import httpx
+            resp = httpx.post(f"{url}?key={key}", json=body, timeout=30.0)
+            if resp.status_code == 200:
+                payload = resp.json()
+                return str(payload["candidates"][0]["content"]["parts"][0]["text"]).strip()
+        except Exception:
+            pass
         try:
             request = Request(
                 f"{url}?key={key}",
-                data=json.dumps({
-                    "contents": [{"parts": [{"text": prompt}]}],
-                    "generationConfig": {"temperature": 0.1, "maxOutputTokens": 350},
-                }).encode(),
-                headers={"Content-Type": "application/json", "User-Agent": "GraphMind/1.0"},
+                data=json.dumps(body).encode(),
+                headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"},
             )
             with urlopen(request, timeout=25) as response:
                 payload = json.loads(response.read())
