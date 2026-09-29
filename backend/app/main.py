@@ -8,6 +8,10 @@ from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 from .core import GraphMindEngine
 from .auth import AuthStore
 
