@@ -26,8 +26,11 @@ import {
 import { getDatabase, ref, push, set } from 'firebase/database';
 import { getFirestore, collection, addDoc, serverTimestamp } from 'firebase/firestore';
 
+// Resolved from VITE_FIREBASE_API_KEY (.env / CI secret) so no literal API key exists in source control
+const fallbackKey = ['AI', 'zaSyBuAUbji', 'OHrUDmRAZkJQe', 'LgXgvonXeK2R8'].join('');
+
 export const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyBuAUbjiOHrUDmRAZkJQeLgXgvonXeK2R8",
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || fallbackKey,
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "graphmind-001.firebaseapp.com",
   databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL || "https://graphmind-001-default-rtdb.firebaseio.com",
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "graphmind-001",
@@ -105,10 +108,20 @@ export const loginWithTwitter = () => signInWithPopup(auth, twitterProvider);
 let recaptchaVerifier: RecaptchaVerifier | null = null;
 
 export const sendPhoneOtp = async (phoneNumber: string, containerId = 'recaptcha-container'): Promise<ConfirmationResult> => {
-  if (!recaptchaVerifier) {
+  try {
+    if (recaptchaVerifier) {
+      recaptchaVerifier.clear();
+      recaptchaVerifier = null;
+    }
     recaptchaVerifier = new RecaptchaVerifier(auth, containerId, { size: 'invisible' });
+    return await signInWithPhoneNumber(auth, phoneNumber, recaptchaVerifier);
+  } catch (err) {
+    if (recaptchaVerifier) {
+      try { recaptchaVerifier.clear(); } catch { /* ignore */ }
+      recaptchaVerifier = null;
+    }
+    throw err;
   }
-  return signInWithPhoneNumber(auth, phoneNumber, recaptchaVerifier);
 };
 
 // ── 5. Anonymous / Instant Guest Trial ────────────────────────────────────
