@@ -21,15 +21,11 @@ type ChatSession = { id: string; title: string; updatedAt: number; turns: ChatTu
 
 const SESSIONS_KEY = 'graphmind_sessions_v1'
 
-const DEFAULT_API = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
-  ? 'http://127.0.0.1:8000'
-  : 'https://graphmind-api-zhrf.onrender.com'
-const API = (import.meta.env.VITE_API_URL || DEFAULT_API).replace(/\/$/, '')
+// API URL — set via VITE_API_URL in .env (Vite bakes this in at build time)
+const API = ("https://graphmind-api-zhrf.onrender.com").replace(/\/$/, '')
 
-// Keep Render free-tier alive: ping every 10 minutes so it never cold-starts
-if (typeof window !== 'undefined' && !window.location.hostname.includes('localhost')) {
-  setInterval(() => { fetch(`${API}/api/health`).catch(() => null) }, 10 * 60 * 1000)
-}
+// Keep Render free-tier alive: ping every 10 minutes so it never sleeps
+setInterval(() => { fetch(`${API}/api/health`).catch(() => null) }, 10 * 60 * 1000)
 
 // fetch with timeout — waits up to 45 s to let Render wake up from cold start
 const fetchWithTimeout = async (url: string, opts: RequestInit = {}, timeoutMs = 45000): Promise<Response> => {
