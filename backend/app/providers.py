@@ -173,6 +173,58 @@ class ModelProvider:
                     return out
         return None
 
+    def generate_chat(self, messages: list[dict], preferred_model: str | None = None) -> str | None:
+        """Multi-turn chat with full conversation history — proper AI agent call."""
+        # Try Groq first with messages array (native OpenAI format)
+        key = self._api_key("groq")
+        url = self._api_url("groq")
+        if key:
+            candidate_models: list[str] = []
+            if preferred_model and preferred_model not in {"auto", "local"} and not preferred_model.startswith("gemini"):
+                candidate_models.append(preferred_model)
+            for m in ("openai/gpt-oss-120b", "qwen/qwen3.8-27b", "openai/gpt-oss-20b"):
+                if m not in candidate_models:
+                    candidate_models.append(m)
+            headers = {
+                "Authorization": f"Bearer {key}",
+                "Content-Type": "application/json",
+                "User-Agent": "Mozilla/5.0 GraphMind/2.0",
+            }
+            for model_name in candidate_models:
+                body = {
+                    "model": model_name,
+                    "messages": messages,
+                    "temperature": 0.7,
+                    "max_tokens": 2048,
+                }
+                try:
+                    import httpx
+                    resp = httpx.post(url, json=body, headers=headers, timeout=45.0)
+                    if resp.status_code == 200:
+                        content = str(resp.json()["choices"][0]["message"]["content"]).strip()
+                        if content:
+                            return content
+                except Exception:
+                    pass
+
+        # Fallback: Gemini with concatenated messages
+        gemini_key = self._api_key("gemini")
+        if gemini_key:
+            convo = "\n".join(
+                f"{'User' if m['role']=='user' else 'Assistant'}: {m['content']}"
+                for m in messages if m.get("role") != "system"
+            )
+            system = next((m["content"] for m in messages if m.get("role") == "system"), "")
+            prompt = f"{system}\n\n{convo}\n\nAssistant:"
+            result = self._call_gemini(prompt, preferred_model=preferred_model)
+            if result:
+                return result
+
+        # Last resort: single-turn generate with last user message
+        last_user = next((m["content"] for m in reversed(messages) if m.get("role") == "user"), "")
+        system = next((m["content"] for m in messages if m.get("role") == "system"), "")
+        return self.generate(f"{system}\n\nUser: {last_user}\n\nAssistant:", preferred_model=preferred_model)
+
     def summarize(self, text: str) -> str | None:
         return self.generate(f"Summarize this scientific passage in two concise sentences:\n{text}")
 
