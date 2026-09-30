@@ -17,7 +17,7 @@ interface LoginPageProps {
   onSuccess?: (user?: AuthUser) => void;
 }
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
+const API_URL = 'https://graphmind-api-zhrf.onrender.com';
 const HAS_FIREBASE_KEYS =
   Boolean(import.meta.env.VITE_FIREBASE_API_KEY) &&
   import.meta.env.VITE_FIREBASE_API_KEY !== 'PASTE_API_KEY';
