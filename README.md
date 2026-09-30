@@ -1,41 +1,91 @@
-# GraphMind — Evidence-first scientific literature QA
+# 🧠 GraphMind AI — Enterprise Scientific Intelligence & Autonomous Research Agent
 
-GraphMind is a runnable B.Tech prototype for asking questions over scientific literature. This repository now contains a FastAPI backend and a responsive React/Vite research console. The original portfolio visual components remain in `src/SpaceScene.tsx` for reuse.
+[![Live App](https://img.shields.io/badge/Live_App-web--graphmind.web.app-06b6d4?style=for-the-badge&logo=firebase)](https://web-graphmind.web.app)
+[![Backend API](https://img.shields.io/badge/API_Engine-Render_Cloud-22c55e?style=for-the-badge&logo=fastapi)](https://graphmind-api-zhrf.onrender.com/api/health)
+[![License](https://img.shields.io/badge/Stage-Production_Ready-3b82f6?style=for-the-badge)](#)
 
-The default local engine is intentionally dependency-light: it extracts PDF/TXT/Markdown text, detects sections, creates overlapping provenance-aware chunks, indexes them with a deterministic TF-IDF vector fallback, blends lexical and semantic scores, builds a lightweight local relationship graph, and returns citation metadata plus an explicit confidence/status. The model adapter (`backend/app/providers.py`) can activate Sentence Transformers embeddings, Hugging Face generation/summarization/NER, or an OpenAI-compatible API for planning, answer generation, and verification when configured; every adapter catches missing packages/model downloads and falls back explicitly.
+**GraphMind AI** is a production-ready Scientific Literature QA, Knowledge Graph Reasoning, and Multi-Model AI Agent platform built for researchers, engineers, and enterprise teams.
 
-For the report-aligned production path, `backend/requirements-optional.txt` lists Sentence Transformers/Hugging Face, PyTorch, FAISS, Neo4j, LangChain, and PyMuPDF. These are intentionally opt-in because their native/runtime footprints are large; the API contracts do not change when a stronger provider is introduced. QLoRA is an experimentation path for fine-tuning a compatible local generator, not a requirement for this retrieval MVP. No credentials are committed.
+---
 
-## Run the full prototype
+## 🌐 Live Deployments
 
-### Backend
+| Surface | URL | Status |
+| :--- | :--- | :--- |
+| **Primary Web App (Firebase Hosting)** | **[https://web-graphmind.web.app](https://web-graphmind.web.app)** | 🟢 Live |
+| **Mirror Web App (FirebaseApp)** | **[https://web-graphmind.firebaseapp.com](https://web-graphmind.firebaseapp.com)** | 🟢 Live |
+| **FastAPI Backend Engine (Render)** | **[https://graphmind-api-zhrf.onrender.com/api/health](https://graphmind-api-zhrf.onrender.com/api/health)** | 🟢 Live |
+
+---
+
+## ✨ Core Capabilities
+
+### 1. 🔬 Literature RAG (Primary Mode)
+- **Evidence-First Scientific QA**: Extracts text from PDF, TXT, and Markdown research papers, detects document sections, and builds overlapping provenance-aware chunks (`page`, `section`, `document_name`, `chunk_id`).
+- **Hybrid Retrieval**: Blends lexical TF-IDF matching with semantic vector embeddings (`sentence-transformers/all-MiniLM-L6-v2`) to maximize both precision and recall.
+- **Inline Citations & Confidence Scoring**: Every claim is grounded in retrieved passages with verifiable inline citations and automated verifier confidence scores.
+
+### 2. ⚡ Hybrid Research AI
+- **RAG + Knowledge Graph + Frontier LLM Synthesis**: Combines grounded literature passages with entity-relationship graph traversal (`Neo4j AuraDB` + deterministic local graph fallback) and deep technical reasoning.
+
+### 3. 💬 Autonomous AI Agent Chat
+- **Multi-Turn Conversational Memory**: Full ChatGPT/Gemini-style multi-turn conversation threads with persistent local & cloud-synced session history.
+- **Multi-Provider Model Cascade**:
+  - **OpenAI GPT-OSS 120B** & **Qwen 3.8 27B** (via Groq LPUs)
+  - **Google Gemini 3.8 Flash**
+  - **Hugging Face Transformers** (`all-MiniLM-L6-v2` embeddings & `dslim/bert-base-NER`)
+  - **Deterministic Local Fallback** (zero-dependency offline safety)
+
+### 4. 🔐 Enterprise Authentication & Account Dashboard
+- **8 Authentication Flows**:
+  - 📧 **Email & Password** (Firebase Auth + SQLite PBKDF2-SHA256)
+  - 🆕 **Instant Registration** with auto-login
+  - 🔵 **Google OAuth 2.0** (`google.com` IdP)
+  - ⌥ **GitHub & ⊞ Microsoft OAuth**
+  - ✨ **Passwordless Magic Email Link**
+  - 📲 **Device / Phone OTP** (real-time 6-digit OTP delivered to user's phone/PC/tablet via Gmail SMTP)
+  - 🔑 **Password Reset**
+  - ⚡ **Instant Guest Session**
+- **Interactive Account Panel**: Click your profile badge in the top navigation bar to view your account provider badge, message & document statistics, active AI engine telemetry, feature status, and recent conversation threads.
+
+---
+
+## 🏗️ Multi-Agent Architecture
+
+GraphMind coordinates 5 specialized agents in an explicit pipeline (`plan → retrieve → graph → fuse → verify → generate`):
+
+1. **Planner Agent**: Decomposes complex research questions into targeted sub-queries and extracts key scientific entities.
+2. **Retriever Agent**: Executes hybrid vector + lexical search across the indexed document library (with optional single-document scoping).
+3. **Graph Reasoning Agent**: Traverses subject–predicate–object triples in Neo4j AuraDB / local graph store to surface multi-hop relationships.
+4. **Generator Agent**: Synthesizes grounded answers with inline citations or multi-turn conversational responses.
+5. **Verifier Agent**: Audits generated answers against retrieved evidence passages and computes a calibrated confidence score.
+
+---
+
+## 🚀 Quick Start (Local Development)
+
+### 1. Backend (FastAPI)
 
 ```bash
 cd backend
 python -m venv .venv
-# Windows: .venv\Scripts\activate
+# Windows:
+.venv\Scripts\activate
+# macOS/Linux:
+# source .venv/bin/activate
+
 pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-The API stores its local index in `backend/data` by default. Copy `.env.example` to `.env` to configure `GRAPHMIND_DATA_DIR` and `GRAPHMIND_MODEL_PROVIDER` (`local`, `huggingface`, `sentence-transformers`, or `openai-compatible`). `GET /api/health` and `GET /api/config` report the selected models and whether a model adapter is active. Useful endpoints are `GET /api/health`, `GET /api/config`, `GET /api/documents`, `POST /api/documents`, and `POST /api/ask`.
-
-### Frontend
-
-## Local development
+### 2. Frontend (React 19 + TypeScript + Vite)
 
 ```bash
 npm install
 npm run dev
 ```
 
-Vite serves the GraphMind console at the displayed local URL. Set `VITE_API_URL` when the API is hosted elsewhere; otherwise it uses `http://127.0.0.1:8000`.
-
-If the API is unavailable, the Pages frontend automatically switches to **Offline Demo Mode**. It provides a seeded scientific-literature corpus, grounded sample answer, evidence/citations, provider status, and simulated upload/query interactions so the published UI remains explorable. This mode is clearly labeled and does not imply that a backend or model is running.
-
-The Pages workflow reads the optional GitHub repository variable `VITE_API_URL` at build time. Set it to the deployed Render API URL (for example `https://graphmind-api.onrender.com`) under **Settings → Secrets and variables → Actions → Variables**. If unset, the public frontend intentionally remains in Offline Demo Mode until it can reach the default local API.
-
-## Tests
+### 3. Run Verification Suite
 
 ```bash
 cd backend
@@ -45,72 +95,33 @@ npm run typecheck
 npm run build
 ```
 
-The demo corpus is inserted automatically on first backend start, so the query and evidence workflow is usable immediately. PDF extraction depends on `pypdf`; scanned/image-only PDFs need OCR, which is deliberately not claimed by this MVP.
+---
 
-The model integrations use pretrained configurable models; none are trained in this repository. Fine-tuning/QLoRA requires a prepared dataset, a compatible base model, GPU resources, and a separate training workflow.
+## 🔒 Security & Environment Configuration
 
-Authentication is production-ready in shape but opt-in for the public demo: `/api/auth/register`, `/api/auth/login`, `/api/auth/logout`, and `/api/auth/me` use SQLite-backed PBKDF2 password hashes and expiring bearer sessions. Set `GRAPHMIND_REQUIRE_AUTH=true` behind HTTPS to protect document and query routes; the Pages offline demo does not require an account. Never expose API keys in the frontend.
+All `.env` files (`.env` and `backend/.env`) are excluded via `.gitignore` so **raw secret keys are never committed in plain text**.
 
-Scanned PDFs are supported when the optional OCR dependencies and system Tesseract are installed. Text PDFs use PyMuPDF when available, then pypdf; image-only PDFs return a clear setup error if OCR is not installed.
+Configure the following environment variables in `backend/.env` (local) or in your **Render Dashboard → Environment** (production):
 
-This pass also adds a production-oriented chat shell: authenticated session controls, responsive workspace/library/query surfaces, loading/error states, evidence cards, and configurable provider status. The frontend stores only the bearer token in browser storage for the configured backend; use HTTPS and a stricter deployment policy for production.
+| Variable | Description |
+| :--- | :--- |
+| `GRAPHMIND_MODEL_PROVIDER` | Primary provider (`groq`, `gemini`, `huggingface`, or `local`) |
+| `GRAPHMIND_PROVIDER_SLOTS` | Cascade order: `groq,gemini,huggingface,local` |
+| `GRAPHMIND_GENERATION_MODEL` | Default LLM (`openai/gpt-oss-120b`) |
+| `GRAPHMIND_GROQ_API_KEY` | Groq API key for GPT-OSS 120B & Qwen 3.8 |
+| `GRAPHMIND_GEMINI_API_KEY` | Google Gemini API key (`gemini-3.8-flash`) |
+| `GRAPHMIND_HUGGINGFACE_API_KEY` | Hugging Face Hub token for embeddings & NER |
+| `NEO4J_URI` / `NEO4J_USERNAME` / `NEO4J_PASSWORD` | Neo4j AuraDB cloud knowledge graph credentials |
+| `OTP_SMTP_FROM` / `OTP_SMTP_PASSWORD` | Gmail SMTP address & App Password for real OTP delivery |
 
-The backend orchestration contract coordinates planner, retrieval, graph/entity, verifier, and generator agents as structured messages (`plan→retrieve→graph→fuse→verify→generate`). In local mode these are deterministic fallback agents; real model-backed calls require a user-supplied provider configuration and a hosted/running backend. The public Pages deployment intentionally uses Offline Demo Mode because GitHub Pages cannot run FastAPI or protect model API keys.
+---
 
-## Docker
+## 📦 Deployment Commands
 
-The backend can also run with `docker compose up --build`; persistent indexed data is kept in the `graphmind-data` volume. Keep the Vite frontend on the host with `npm run dev`, or build it separately and set `VITE_API_URL` to the published API URL.
+```bash
+# Build production frontend bundle
+npm run build
 
-## One-click Render backend deployment
-
-1. Open Render and choose **New → Blueprint**, then select this repository. Render detects `render.yaml` and creates the `graphmind-api` Docker web service.
-2. Set the prompted `GRAPHMIND_CORS_ORIGINS` value to `https://lazee01.github.io` (add `http://localhost:5173` for local development). Render supplies `PORT`; the Docker command binds to it automatically.
-3. The free-tier blueprint stores `GRAPHMIND_DATA_DIR` under `/tmp/graphmind-data`, so indexed documents and SQLite sessions are ephemeral and can be lost on restart/redeploy. For production persistence, change the value to `/var/data` and add a Render paid-plan disk mounted at `/var/data` in the service settings (Render free services do not support disks).
-4. After deployment, verify `https://<service>.onrender.com/api/health`, then save that URL as the GitHub Actions repository variable `VITE_API_URL` and rerun the Pages workflow.
-
-No API keys are included. **Any keys pasted into chat must be treated as compromised and rotated immediately; they are not used or stored by this repository.** After rotation, add credentials only in Render's environment settings:
-
-| Provider | Variables | Current adapter |
-|---|---|---|
-| Groq | `GRAPHMIND_MODEL_PROVIDER=groq`, `GRAPHMIND_GROQ_API_KEY`, optional `GRAPHMIND_GROQ_API_URL` | Supported through Groq's OpenAI-compatible chat endpoint |
-| OpenAI-compatible | `GRAPHMIND_MODEL_PROVIDER=openai-compatible`, `GRAPHMIND_LLM_API_KEY`, `GRAPHMIND_LLM_API_URL` | Supported |
-| Hugging Face | `GRAPHMIND_MODEL_PROVIDER=huggingface`, `GRAPHMIND_HUGGINGFACE_API_KEY` (for provider status), `GRAPHMIND_GENERATION_MODEL` | Uses local pretrained Transformers when optional dependencies are installed; the key is not sent to a hosted inference API |
-| Gemini | `GRAPHMIND_GEMINI_API_KEY` | Reserved only; Gemini's native API adapter is not implemented, so it falls back to local mode |
-
-Set `GRAPHMIND_PROVIDER_SLOTS=local,groq,huggingface` to expose configured slots in health/config. Never put any of these variables in the frontend or commit their values. Final Render account authorization, service creation, key rotation, and provider key entry require the repository owner.
-
-Create a production build with `npm run build`, then preview it with `npm run preview`.
-
-## Deploy to GitHub Pages
-
-1. Push the repository to GitHub.
-2. In **Settings → Pages**, select **GitHub Actions** as the source.
-3. The included `.github/workflows/deploy-pages.yml` installs Node, runs `npm ci`, builds the site, and deploys `dist` with the official Pages actions.
-4. The committed `public/CNAME` file keeps the custom domain attached to Pages. The Vite base is `/`, which is correct for `rohitpaul.me`.
-5. If the first workflow run reports `Creating Pages deployment failed: Not Found`, enable Pages once in **Settings → Pages** with **Source: GitHub Actions**, then rerun the workflow. This is a repository setting rather than a code or credential requirement.
-
-The downloadable CV is kept at `public/rohit-paul-cv.txt` and is copied to the site root during the build.
-
-## Namecheap custom domain: rohitpaul.me
-
-In the repository's **Settings → Pages → Custom domain**, enter `rohitpaul.me`. Commit the generated `CNAME` file if GitHub creates one, or add `public/CNAME` containing:
-
-```text
-rohitpaul.me
+# Deploy frontend to Firebase Hosting (web-graphmind.web.app)
+firebase deploy --only hosting:web-graphmind --project graphmind-001
 ```
-
-In Namecheap, open **Advanced DNS** for `rohitpaul.me` and create these records (remove conflicting URL redirect and parking records):
-
-| Type | Host | Value |
-| --- | --- | --- |
-| A | `@` | `185.199.108.153` |
-| A | `@` | `185.199.109.153` |
-| A | `@` | `185.199.110.153` |
-| A | `@` | `185.199.111.153` |
-| CNAME | `www` | `lazee01.github.io` |
-
-DNS propagation can take up to 48 hours. Once GitHub Pages verifies the domain, enable **Enforce HTTPS**.
-
-## Content notes
-
-The site uses only the supplied CV details. GitHub and LinkedIn links are intentionally generic placeholders because profile URLs were not included; replace them in `src/main.jsx` when available.
