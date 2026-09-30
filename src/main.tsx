@@ -12,6 +12,7 @@ import {
   logout as firebaseLogout, onAuthChange, syncQueryToFirebase, type ConfirmationResult,
 } from './lib/firebase'
 import './styles.css'
+import AccountPanel from './components/AccountPanel'
 
 type Evidence = { id: string; document_name: string; text: string; page: number | null; section: string; score: number; citation: string }
 type Answer = { question?: string; mode?: string; answer: string; confidence: number; status: string; provider: any; evidence: Evidence[]; graph_context: string[]; plan: { question_type: string; entities: string[] }; verification?: { supported: boolean; mode?: string } }
@@ -93,6 +94,7 @@ function App() {
   const [authNotice, setAuthNotice] = useState('')
   const [authOpen, setAuthOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [accountOpen, setAccountOpen] = useState(false)
   const [authMode, setAuthMode] = useState<'login' | 'register' | 'magic' | 'phone' | 'reset'>('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -620,23 +622,30 @@ function App() {
     }
   }
 
-  const handleUserClick = async () => {
+  const handleUserClick = () => {
     if (user) {
-      await firebaseLogout().catch(() => null)
-      const token = localStorage.getItem('graphmind_token')
-      if (token) {
-        void fetch(`${API}/api/auth/logout`, { method: 'POST', headers: apiHeaders() }).catch(() => null)
-      }
-      localStorage.removeItem('graphmind_token')
-      localStorage.removeItem('graphmind_user')
-      setUser(null)
+      setAccountOpen(true)
     } else {
       setAuthOpen(true)
     }
   }
 
+  const handleSignOut = async () => {
+    await firebaseLogout().catch(() => null)
+    const token = localStorage.getItem('graphmind_token')
+    if (token) {
+      void fetch(`${API}/api/auth/logout`, { method: 'POST', headers: apiHeaders() }).catch(() => null)
+    }
+    localStorage.removeItem('graphmind_token')
+    localStorage.removeItem('graphmind_user')
+    setUser(null)
+    setAccountOpen(false)
+  }
+
   const selectedDocObj = documents.find((d) => d.id === selectedDocument)
   const activeModelLabel = MODEL_OPTIONS.find((m) => m.value === modelPreference)?.label.split(' (')[0] || 'Auto Cascade'
+  const userInitial = user?.email ? (user.email.includes('(') ? user.email[0] : user.email[0]).toUpperCase() : null
+  const isGuestUser = user?.email?.toLowerCase().includes('guest') || user?.email?.toLowerCase().includes('anonymous')
 
   return <div className="app-shell">
     <header className="topbar">
@@ -651,14 +660,53 @@ function App() {
         <button className="auth-button" onClick={() => setSettingsOpen(true)} title="Project, AI & Library Settings">
           Project settings
         </button>
-        <button className="auth-button" onClick={handleUserClick} title={user ? 'Click to sign out' : 'Sign in with Firebase'}>
-          {user ? `${user.email} · Sign out` : 'Sign in'}
+        <button
+          onClick={handleUserClick}
+          title={user ? 'View Account' : 'Sign in'}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 8, padding: '6px 14px',
+            background: user ? '#1e293b' : 'transparent',
+            border: `1px solid ${user ? '#334155' : '#1e3a5f'}`,
+            borderRadius: 8, cursor: 'pointer', color: '#e2e8f0', fontSize: 13,
+            transition: 'all 0.2s'
+          }}
+        >
+          {user ? (
+            <>
+              <span style={{
+                width: 24, height: 24, borderRadius: '50%',
+                background: isGuestUser ? '#f59e0b22' : '#06b6d422',
+                border: `1px solid ${isGuestUser ? '#f59e0b' : '#06b6d4'}`,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 11, fontWeight: 700, color: isGuestUser ? '#f59e0b' : '#06b6d4'
+              }}>
+                {isGuestUser ? '👤' : userInitial}
+              </span>
+              <span style={{ maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {isGuestUser ? 'Guest' : (user.email?.split('@')[0] || 'Account')}
+              </span>
+            </>
+          ) : (
+            <span>Sign in</span>
+          )}
         </button>
         <button type="button" className={`top-status ${offline ? 'demo-status' : ''}`} onClick={() => setSettingsOpen(true)} title="Open AI & Library Settings">
           <CircleDot size={13} /> {offline ? 'OFFLINE DEMO MODE' : health?.status === 'ok' ? 'API ENGINE READY' : 'CONNECTING'} <Settings2 size={15} />
         </button>
       </div>
     </header>
+
+    {accountOpen && (
+      <AccountPanel
+        user={user}
+        onClose={() => setAccountOpen(false)}
+        onSignOut={handleSignOut}
+        onSignIn={() => { setAccountOpen(false); setAuthOpen(true) }}
+        chatHistory={sessions.flatMap(s => s.turns)}
+        documentsCount={documents.length}
+        health={health}
+      />
+    )}
 
     {authOpen && (
       <div className="auth-backdrop" onClick={() => setAuthOpen(false)}>
