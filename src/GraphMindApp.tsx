@@ -9,7 +9,7 @@ import LoginPage, { type AuthUser } from './components/LoginPage';
 import { onAuthChange, logout as firebaseLogout } from './lib/firebase';
 
 export const GraphMindApp: React.FC = () => {
-  const apiUrl = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
+  const apiUrl = 'https://graphmind-api-zhrf.onrender.com';
   const { documents, uploadDocument, ask, health, loading, demoMode } = useGraphMind(apiUrl);
   
   const [query, setQuery] = useState('');
