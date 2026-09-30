@@ -10,18 +10,32 @@ services:
       - key: GRAPHMIND_DATA_DIR
         value: /tmp/graphmind-data
       - key: GRAPHMIND_CORS_ORIGINS
-        sync: false
+        value: "http://localhost:5173,http://localhost:3000,https://web-graphmind.web.app,https://web-graphmind.firebaseapp.com,https://graphmind-001.web.app,https://graphmind-001.firebaseapp.com,https://lazee01.github.io"
       - key: GRAPHMIND_MODEL_PROVIDER
-        value: local
-      - key: GRAPHMIND_LLM_API_KEY
-        sync: false
-      - key: GRAPHMIND_LLM_API_URL
-        sync: false
+        value: groq
+      - key: GRAPHMIND_PROVIDER_SLOTS
+        value: "groq,gemini,huggingface,local"
+      - key: GRAPHMIND_GENERATION_MODEL
+        value: openai/gpt-oss-120b
       - key: GRAPHMIND_GROQ_API_URL
         value: https://api.groq.com/openai/v1/chat/completions
       - key: GRAPHMIND_GROQ_API_KEY
         sync: false
+      - key: GRAPHMIND_GEMINI_API_KEY
+        sync: false
+      - key: GRAPHMIND_GEMINI_MODEL
+        value: gemini-3.8-flash
       - key: GRAPHMIND_HUGGINGFACE_API_KEY
         sync: false
-      - key: GRAPHMIND_GEMINI_API_KEY
+      - key: NEO4J_URI
+        sync: false
+      - key: NEO4J_USERNAME
+        sync: false
+      - key: NEO4J_PASSWORD
+        sync: false
+      - key: NEO4J_DATABASE
+        sync: false
+      - key: OTP_SMTP_FROM
+        sync: false
+      - key: OTP_SMTP_PASSWORD
         sync: false
