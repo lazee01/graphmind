@@ -26,6 +26,22 @@ const DEFAULT_API = typeof window !== 'undefined' && (window.location.hostname =
   : 'https://graphmind-api-zhrf.onrender.com'
 const API = (import.meta.env.VITE_API_URL || DEFAULT_API).replace(/\/$/, '')
 
+// Keep Render free-tier alive: ping every 10 minutes so it never cold-starts
+if (typeof window !== 'undefined' && !window.location.hostname.includes('localhost')) {
+  setInterval(() => { fetch(`${API}/api/health`).catch(() => null) }, 10 * 60 * 1000)
+}
+
+// fetch with timeout — waits up to 45 s to let Render wake up from cold start
+const fetchWithTimeout = async (url: string, opts: RequestInit = {}, timeoutMs = 45000): Promise<Response> => {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    return await fetch(url, { ...opts, signal: controller.signal })
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 const MODEL_OPTIONS = [
   { value: 'auto', label: 'Auto Cascade (GPT-OSS 120B + Gemini 3.8 + Qwen 3.8)' },
   { value: 'openai/gpt-oss-120b', label: 'OpenAI GPT-OSS 120B (Groq Primary)' },
@@ -208,15 +224,32 @@ function App() {
 
   const loadWorkspace = async () => {
     try {
-      const [healthResponse, documentsResponse] = await Promise.all([fetch(`${API}/api/health`), fetch(`${API}/api/documents`, { headers: apiHeaders() })])
+      // First try – allow up to 45 s for Render to wake up from cold start
+      const [healthResponse, documentsResponse] = await Promise.all([
+        fetchWithTimeout(`${API}/api/health`, {}, 45000),
+        fetchWithTimeout(`${API}/api/documents`, { headers: apiHeaders() }, 45000),
+      ])
       if (!healthResponse.ok || !documentsResponse.ok) throw new Error('API unavailable')
       setHealth(await healthResponse.json())
       setDocuments(await documentsResponse.json())
       setOffline(false)
     } catch {
-      setOffline(true)
-      setHealth({ status: 'demo', chunks: 7, provider: { provider: 'offline-demo', active: true }, neo4j: false, agents: ['planner', 'retrieval', 'graph', 'verifier', 'generator'].map((name) => ({ name, mode: 'offline-demo' })) })
-      setDocuments(DEMO_DOCUMENTS)
+      // Second try after 8 s (Render might still be starting)
+      try {
+        await new Promise((r) => setTimeout(r, 8000))
+        const [h2, d2] = await Promise.all([
+          fetchWithTimeout(`${API}/api/health`, {}, 30000),
+          fetchWithTimeout(`${API}/api/documents`, { headers: apiHeaders() }, 30000),
+        ])
+        if (!h2.ok || !d2.ok) throw new Error('API unavailable')
+        setHealth(await h2.json())
+        setDocuments(await d2.json())
+        setOffline(false)
+      } catch {
+        setOffline(true)
+        setHealth({ status: 'demo', chunks: 7, provider: { provider: 'offline-demo', active: true }, neo4j: false, agents: ['planner', 'retrieval', 'graph', 'verifier', 'generator'].map((name) => ({ name, mode: 'offline-demo' })) })
+        setDocuments(DEMO_DOCUMENTS)
+      }
     }
   }
   useEffect(() => { void loadWorkspace() }, [])
