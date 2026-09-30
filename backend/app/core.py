@@ -264,6 +264,51 @@ class GraphMindEngine:
         model_preference: str | None = None,
         history: list[dict[str, str]] | None = None,
     ) -> dict:
+        history = history or []
+        provider_status = self.models.status()
+
+        # ── CHAT MODE: pure AI agent, no RAG ───────────────────────────────────
+        if mode == "chat":
+            system_msg = (
+                "You are GraphMind AI — a highly capable, friendly AI assistant powered by "
+                "OpenAI GPT-OSS 120B, Google Gemini 3.8, and Qwen 3.8. "
+                "Respond naturally, thoroughly, and helpfully. "
+                "You can write code, debug, explain science/math, brainstorm, summarize, translate, "
+                "and answer any general question. "
+                "Keep responses clear, well-structured, and concise unless depth is needed. "
+                "Never say you cannot find passages — this is a general AI chat, not a RAG query."
+            )
+            messages: list[dict] = [{"role": "system", "content": system_msg}]
+            for turn in history[-12:]:
+                role = turn.get("role", "user")
+                content = turn.get("content", "").strip()
+                if content and role in ("user", "assistant"):
+                    messages.append({"role": role, "content": content})
+            messages.append({"role": "user", "content": question})
+
+            answer = self.models.generate_chat(messages, preferred_model=model_preference)
+            if not answer:
+                answer = (
+                    "I'm having trouble reaching the AI right now. "
+                    "Please try again in a moment or check your connection."
+                )
+            return {
+                "question": question,
+                "answer": answer,
+                "confidence": 0.96,
+                "status": "chat",
+                "evidence": [],
+                "citations": [],
+                "graph_paths": [],
+                "provider": provider_status,
+                "plan": {"question_type": "chat", "entities": [], "sub_queries": [question]},
+                "verification": {"supported": True, "mode": "chat-agent"},
+                "agents": [
+                    {"name": "chat-agent", "mode": "ai-chat"},
+                ],
+            }
+
+        # ── RAG / HYBRID MODE: evidence-first pipeline ──────────────────────────
         workflow = self.orchestrator.run(question, limit, document_id=document_id)
         plan = workflow["plan"]
         evidence = workflow["evidence"]
@@ -280,34 +325,23 @@ class GraphMindEngine:
             if turns:
                 history_block = "Conversation History:\n" + "\n".join(turns) + "\n\n"
 
-        if mode == "chat":
-            prompt = (
-                "You are GraphMind AI Assistant (powered by GPT-OSS 120B, Gemini 3.8, and Qwen 3.8). "
-                "Respond naturally, thoroughly, and helpfully like ChatGPT and Gemini. "
-                "You can answer general questions, write code, explain math/science, brainstorm, and also reference the user's indexed library when helpful.\n\n"
-                f"{history_block}"
-                f"Optional Library Context:\n{evidence_block or 'None'}\n\n"
-                f"User Message: {question}\n\n"
-                "Assistant Response:"
-            )
-        elif mode == "rag":
+        if mode == "rag":
             prompt = (
                 "You are GraphMind, an evidence-first scientific literature QA engine.\n"
-                "Primary Focus: Ground your answer in the retrieved scientific passages and knowledge graph relationships below, citing source names inline (e.g. [demo-literature.txt]). "
-                "If the retrieved passages only partially cover the question, synthesize what the passages state first with inline citations, and then clearly provide expert scientific context.\n\n"
+                "Ground your answer in the retrieved scientific passages below, citing source names inline (e.g. [source.pdf]). "
+                "If passages only partially cover the question, synthesize what the passages state first, then provide expert scientific context.\n\n"
                 f"{history_block}"
                 f"User Question: {question}\n\n"
-                f"Retrieved Literature Passages:\n{evidence_block or 'No passages retrieved.'}\n\n"
+                f"Retrieved Literature Passages:\n{evidence_block or 'No passages retrieved — answer from general knowledge and note this.'}\n\n"
                 f"Knowledge Graph Context: {graph_block}\n\n"
                 "Grounded Scientific Answer:"
             )
-        else:
+        else:  # hybrid
             prompt = (
                 "You are GraphMind, a hybrid scientific research assistant combining Literature RAG, Knowledge Graphs, and frontier AI reasoning.\n"
-                "Instructions:\n"
-                "1. Give a thorough, clear, well-structured answer to the user's question.\n"
-                "2. Ground claims in the retrieved literature below with inline citations (e.g., [demo-literature.txt]) whenever relevant.\n"
-                "3. Seamlessly expand with complete scientific, mathematical, or technical depth using your expert knowledge.\n\n"
+                "1. Give a thorough, well-structured answer.\n"
+                "2. Ground claims in retrieved literature with inline citations whenever relevant.\n"
+                "3. Expand with complete scientific or technical depth.\n\n"
                 f"{history_block}"
                 f"User Question: {question}\n\n"
                 f"Retrieved Literature Passages:\n{evidence_block or 'No passages retrieved.'}\n\n"
@@ -318,7 +352,7 @@ class GraphMindEngine:
         llm_answer = self.models.generate(prompt, preferred_model=model_preference)
         if llm_answer:
             answer = llm_answer
-            confidence = min(0.98, max(0.82 if mode == "chat" else 0.78, 0.55 + sum(item["score"] for item in evidence[:3]) / 3))
+            confidence = min(0.98, max(0.78, 0.55 + sum(item["score"] for item in evidence[:3]) / 3))
             status = "grounded"
             verification = {"supported": True, "mode": model_preference or self.models.name}
         elif evidence and top_score > 0:
@@ -327,7 +361,10 @@ class GraphMindEngine:
             status = "grounded"
             verification = self.models.verify(answer, evidence) or {"supported": True, "mode": "local"}
         else:
-            answer = "I could not find supporting passages in the indexed literature."
+            answer = (
+                "No matching passages were found in your indexed library for this question. "
+                "Try uploading relevant papers, or switch to **AI Chat** mode for general questions."
+            )
             confidence = 0.0
             status = "insufficient_evidence"
             verification = {"supported": False, "mode": "local"}
