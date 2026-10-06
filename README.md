@@ -1,10 +1,10 @@
-# 🧠 GraphMind AI — Enterprise Scientific Intelligence & Autonomous Research Agent
+# 🧠 GraphMind AI — Scientific Literature QA MVP
 
 [![Live App](https://img.shields.io/badge/Live_App-web--graphmind.web.app-06b6d4?style=for-the-badge&logo=firebase)](https://web-graphmind.web.app)
 [![Backend API](https://img.shields.io/badge/API_Engine-Render_Cloud-22c55e?style=for-the-badge&logo=fastapi)](https://graphmind-api-zhrf.onrender.com/api/health)
-[![License](https://img.shields.io/badge/Stage-Production_Ready-3b82f6?style=for-the-badge)](#)
+[![License](https://img.shields.io/badge/Stage-MVP%2FBeta-3b82f6?style=for-the-badge)](#)
 
-**GraphMind AI** is a production-ready Scientific Literature QA, Knowledge Graph Reasoning, and Multi-Model AI Agent platform built for researchers, engineers, and enterprise teams.
+**GraphMind AI** is an MVP/beta Scientific Literature QA prototype for uploading papers, asking grounded questions, and reviewing evidence and provenance. External providers and persistence are optional and deployment-dependent.
 
 ---
 
@@ -26,27 +26,18 @@
 - **Inline Citations & Confidence Scoring**: Every claim is grounded in retrieved passages with verifiable inline citations and automated verifier confidence scores.
 
 ### 2. ⚡ Hybrid Research AI
-- **RAG + Knowledge Graph + Frontier LLM Synthesis**: Combines grounded literature passages with entity-relationship graph traversal (`Neo4j AuraDB` + deterministic local graph fallback) and deep technical reasoning.
+- **RAG + Knowledge Graph + Configurable Generation**: Combines grounded literature passages with entity-relationship graph traversal (`Neo4j` is optional) and a deterministic local graph fallback.
 
-### 3. 💬 Autonomous AI Agent Chat
-- **Multi-Turn Conversational Memory**: Full ChatGPT/Gemini-style multi-turn conversation threads with persistent local & cloud-synced session history.
+### 3. 💬 Research Chat
+- **Local browser thread history**: The frontend can keep recent threads in browser storage. Cloud-synced memory is not guaranteed by this MVP.
 - **Multi-Provider Model Cascade**:
-  - **OpenAI GPT-OSS 120B** & **Qwen 3.8 27B** (via Groq LPUs)
-  - **Google Gemini 3.8 Flash**
-  - **Hugging Face Transformers** (`all-MiniLM-L6-v2` embeddings & `dslim/bert-base-NER`)
+  - **Groq/OpenAI-compatible generation** (active on the current Render deployment)
+  - **Local Hugging Face Transformers** when optional packages and model files are installed
+  - **Gemini native API is not implemented in the current adapter**
   - **Deterministic Local Fallback** (zero-dependency offline safety)
 
-### 4. 🔐 Enterprise Authentication & Account Dashboard
-- **8 Authentication Flows**:
-  - 📧 **Email & Password** (Firebase Auth + SQLite PBKDF2-SHA256)
-  - 🆕 **Instant Registration** with auto-login
-  - 🔵 **Google OAuth 2.0** (`google.com` IdP)
-  - ⌥ **GitHub & ⊞ Microsoft OAuth**
-  - ✨ **Passwordless Magic Email Link**
-  - 📲 **Device / Phone OTP** (real-time 6-digit OTP delivered to user's phone/PC/tablet via Gmail SMTP)
-  - 🔑 **Password Reset**
-  - ⚡ **Instant Guest Session**
-- **Interactive Account Panel**: Click your profile badge in the top navigation bar to view your account provider badge, message & document statistics, active AI engine telemetry, feature status, and recent conversation threads.
+### 4. 🔐 Beta Authentication
+- Email/password and optional Firebase sign-in surfaces are present, but provider setup, OAuth credentials, OTP delivery, and account persistence depend on external configuration. Do not treat every UI option as enabled in every deployment.
 
 ---
 
@@ -105,12 +96,12 @@ Configure the following environment variables in `backend/.env` (local) or in yo
 
 | Variable | Description |
 | :--- | :--- |
-| `GRAPHMIND_MODEL_PROVIDER` | Primary provider (`groq`, `gemini`, `huggingface`, or `local`) |
-| `GRAPHMIND_PROVIDER_SLOTS` | Cascade order: `groq,gemini,huggingface,local` |
-| `GRAPHMIND_GENERATION_MODEL` | Default LLM (`openai/gpt-oss-120b`) |
-| `GRAPHMIND_GROQ_API_KEY` | Groq API key for GPT-OSS 120B & Qwen 3.8 |
-| `GRAPHMIND_GEMINI_API_KEY` | Google Gemini API key (`gemini-3.8-flash`) |
-| `GRAPHMIND_HUGGINGFACE_API_KEY` | Hugging Face Hub token for embeddings & NER |
+| `GRAPHMIND_MODEL_PROVIDER` | `groq`, `openai-compatible`, `huggingface`, `sentence-transformers`, or `local` |
+| `GRAPHMIND_PROVIDER_SLOTS` | Optional status slots; local fallback remains available |
+| `GRAPHMIND_GROQ_MODEL` | Groq model name; the live service currently reports `openai/gpt-oss-120b` |
+| `GRAPHMIND_GROQ_API_KEY` | Rotated Groq API key, stored only in Render |
+| `GRAPHMIND_GEMINI_API_KEY` | Not used by the current native adapter |
+| `GRAPHMIND_HUGGINGFACE_API_KEY` | Not required by the current local Transformers path |
 | `NEO4J_URI` / `NEO4J_USERNAME` / `NEO4J_PASSWORD` | Neo4j AuraDB cloud knowledge graph credentials |
 | `OTP_SMTP_FROM` / `OTP_SMTP_PASSWORD` | Gmail SMTP address & App Password for real OTP delivery |
 
@@ -122,6 +113,10 @@ Configure the following environment variables in `backend/.env` (local) or in yo
 # Build production frontend bundle
 npm run build
 
-# Deploy frontend to Firebase Hosting (web-graphmind.web.app)
+# Deploy frontend to Firebase Hosting (primary)
 firebase deploy --only hosting:web-graphmind --project graphmind-001
 ```
+
+Firebase primary: [web-graphmind.web.app](https://web-graphmind.web.app). Firebase mirror: [web-graphmind.firebaseapp.com](https://web-graphmind.firebaseapp.com). GitHub Pages mirror: [lazee01.github.io/graphmind](https://lazee01.github.io/graphmind/). Backend: [Render health](https://graphmind-api-zhrf.onrender.com/api/health).
+
+Render Free uses `/tmp/graphmind-data`, which is ephemeral. Uploaded papers, the local index, and SQLite sessions can be lost after a restart or redeploy. Use a paid persistent disk mounted at `/var/data` for retention.

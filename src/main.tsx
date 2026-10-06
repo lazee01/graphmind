@@ -40,12 +40,9 @@ const fetchWithTimeout = async (url: string, opts: RequestInit = {}, timeoutMs =
 }
 
 const MODEL_OPTIONS = [
-  { value: 'auto', label: 'Auto Cascade (GPT-OSS 120B + Gemini 3.8 + Qwen 3.8)' },
-  { value: 'openai/gpt-oss-120b', label: 'OpenAI GPT-OSS 120B (Groq Primary)' },
-  { value: 'gemini-3.8-flash', label: 'Google Gemini 3.8 Flash' },
-  { value: 'qwen/qwen3.8-27b', label: 'Qwen 3.8 27B (Scientific Reasoning)' },
-  { value: 'openai/gpt-oss-20b', label: 'OpenAI GPT-OSS 20B (Ultra-Fast)' },
-  { value: 'local', label: 'Local Extractive + TF-IDF (Offline Safe)' },
+  { value: 'auto', label: 'Auto (Groq with local fallback)' },
+  { value: 'openai/gpt-oss-120b', label: 'Groq configured model' },
+  { value: 'local', label: 'Local extractive + TF-IDF' },
 ]
 
 const DEMO_DOCUMENTS: Document[] = [
@@ -651,7 +648,7 @@ function App() {
     <header className="topbar">
       <a className="logo" href="#top"><span className="logo-mark"><GitBranch size={18} /></span><span>graph<span>mind</span></span></a>
       <nav>
-        <a className={mode !== 'chat' ? 'active' : ''} href="#ask" onClick={() => setMode('rag')}>Ask literature</a>
+        <a className={mode !== 'chat' ? 'active' : ''} href="#ask" onClick={() => setMode('rag')}>Ask paper</a>
         <a className={mode === 'chat' ? 'active' : ''} href="#ask" onClick={() => setMode('chat')}>AI Chat</a>
         <a href="#library">Library ({documents.length})</a>
         <a href="#method">How it works</a>
@@ -851,9 +848,9 @@ function App() {
           <div className="settings-field">
             <label>CONNECTED AI & CLOUD PROVIDERS</label>
             <div className="provider-grid">
-              <div className="provider-status-item"><span>Groq (GPT-OSS 120B / Qwen 3.8)</span><span className="ok">ACTIVE</span></div>
-              <div className="provider-status-item"><span>Google Gemini 3.8 Flash</span><span className="ok">ACTIVE</span></div>
-              <div className="provider-status-item"><span>Hugging Face (MiniLM / NER)</span><span className="ok">ACTIVE</span></div>
+              <div className="provider-status-item"><span>Groq / OpenAI-compatible</span><span className="ok">LIVE HEALTH STATUS</span></div>
+              <div className="provider-status-item"><span>Gemini native API</span><span>NOT CONFIGURED</span></div>
+              <div className="provider-status-item"><span>Hugging Face</span><span>OPTIONAL LOCAL</span></div>
               <div className="provider-status-item"><span>Firebase (graphmind-001)</span><span className="ok">CONNECTED</span></div>
             </div>
           </div>
@@ -892,10 +889,10 @@ function App() {
         <div className="section-title">
           <div>
             <span className="kicker">01 / RESEARCH CONSOLE</span>
-            <h2>{mode === 'chat' ? 'AI Research Chat.' : 'Ask your library.'}</h2>
+            <h2>{mode === 'chat' ? 'Research chat.' : 'Ask your paper.'}</h2>
           </div>
           <span className="muted">
-            {mode === 'rag' ? 'PRIMARY: Planner → retrieve → graph → verify → cite' : mode === 'hybrid' ? 'HYBRID: Literature RAG + Frontier AI Synthesis' : 'CHAT: Multi-turn GPT-OSS 120B & Gemini 3.8'}
+            {mode === 'rag' ? (selectedDocObj ? 'Selected paper only · evidence and citations' : 'Select a paper below to scope the question') : mode === 'hybrid' ? 'Literature retrieval with optional graph context' : 'Follow-up research conversation'}
           </span>
         </div>
 
@@ -948,10 +945,10 @@ function App() {
             onChange={(event) => setQuestion(event.target.value)}
             placeholder={
               mode === 'chat'
-                ? 'Chat with GPT-OSS 120B & Gemini 3.8 (ask anything, follow-ups, code, or science)…'
+                ? 'Ask a follow-up about your selected paper…'
                 : selectedDocObj
                 ? `Ask a grounded question about ${selectedDocObj.name}…`
-                : 'Ask a question about your indexed papers…'
+                : 'Select a paper below, then ask a question…'
             }
           />
           <button disabled={busy}>
@@ -1006,7 +1003,7 @@ function App() {
                 </div>
                 <p className="answer-text">{answer.answer}</p>
                 <div className="answer-meta">
-                  <span>Engine: {activeModelLabel}</span>
+                  <span>{answer.evidence.length} cited passages</span>
                   <span>Mode: {mode.toUpperCase()}</span>
                   <span>Question type: {answer.plan.question_type}</span>
                 </div>
@@ -1043,8 +1040,8 @@ function App() {
             <strong>{mode === 'chat' ? 'Start a conversation with GraphMind AI' : 'Ask your first question'}</strong>
             <span>
               {mode === 'chat'
-                ? 'Powered by OpenAI GPT-OSS 120B, Google Gemini 3.8 Flash & Qwen 3.8 — switch back to Literature RAG anytime.'
-                : 'Answers will include ranked passages, section context, and citation-ready metadata.'}
+                ? 'Keep follow-ups tied to the selected paper, or switch back to Literature RAG.'
+                : 'Answers include ranked passages, section context, and citation-ready metadata.'}
             </span>
           </div>
         )}
@@ -1061,14 +1058,14 @@ function App() {
               <Settings2 size={14} /> Library settings
             </button>
             <label className="upload-button">
-              <Upload size={16} /> {uploading ? 'Extracting…' : 'Upload PDF or TXT'}
+              <Upload size={16} /> {uploading ? 'Reading paper…' : 'Upload a paper'}
               <input type="file" accept=".pdf,.txt,.md" onChange={upload} disabled={uploading} />
             </label>
           </div>
         </div>
         {selectedDocument && (
           <button className="clear-selection" onClick={() => setSelectedDocument(null)}>
-            Querying selected paper ({selectedDocObj?.name}) · Click to search all papers
+            Selected paper: {selectedDocObj?.name} · Click to clear
           </button>
         )}
         <div className="library-grid">
@@ -1101,11 +1098,11 @@ function App() {
         <div className="section-title">
           <div>
             <span className="kicker">03 / TRANSPARENT BY DESIGN</span>
-            <h2>Enterprise-grade architecture.</h2>
+            <h2>A practical evidence pipeline.</h2>
           </div>
         </div>
         <div className="method-grid">
-          {[['01', 'Ingest', 'Extract text, normalize PDF glyphs, detect sections, and preserve page-level provenance.'], ['02', 'Retrieve', 'Fuse lexical precision with semantic vectors across your selected paper or full library.'], ['03', 'Reason', 'Traverse knowledge graph relationships with multi-agent query decomposition.'], ['04', 'Verify', 'Audit claims with confidence scoring and multi-model synthesis (GPT-OSS 120B, Gemini 3.8 & Qwen 3.8).']].map(([number, title, text]) => (
+          {[['01', 'Ingest', 'Extract text, detect sections, and preserve page-level provenance.'], ['02', 'Retrieve', 'Fuse lexical precision with semantic vectors across the selected paper.'], ['03', 'Reason', 'Use graph relationships when configured, with a local fallback.'], ['04', 'Verify', 'Audit claims with confidence scoring and citation metadata.']].map(([number, title, text]) => (
             <article key={number}><span>{number}</span><h3>{title}</h3><p>{text}</p></article>
           ))}
         </div>
@@ -1113,8 +1110,8 @@ function App() {
     </main>
 
     <footer>
-      <span>GraphMind AI · Enterprise Scientific Intelligence Platform</span>
-      <span>{health ? `${health.chunks} indexed chunks · ${activeModelLabel} · ${(health.agents || []).length || 5} active agents` : 'GraphMind Cloud Engine'}</span>
+      <span>GraphMind AI · literature QA MVP</span>
+      <span>{health ? `${health.chunks} indexed chunks · ${health.provider?.provider || 'local'} provider` : 'FastAPI + React'}</span>
     </footer>
   </div>
 }
