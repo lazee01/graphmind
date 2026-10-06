@@ -32,6 +32,7 @@ jobs:
       - name: Build
         env:
           VITE_API_URL: ${{ vars.VITE_API_URL }}
+          VITE_BASE_PATH: /graphmind/
         run: npm run build
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

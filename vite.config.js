@@ -6,7 +6,7 @@ export default defineConfig(({ mode }) => {
   const apiUrl = env.VITE_API_URL || 'https://graphmind-api-zhrf.onrender.com'
 
   return {
-    base: process.env.GITHUB_ACTIONS ? '/graphmind/' : '/',
+    base: env.VITE_BASE_PATH || (process.env.GITHUB_ACTIONS ? '/graphmind/' : '/'),
     plugins: [react()],
     define: {
       // Guarantee API URL is baked in correctly regardless of .env encoding
